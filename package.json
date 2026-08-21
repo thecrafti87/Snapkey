@@ -1,0 +1,10 @@
+{
+  "name": "kaiman",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Eigener Transport für direkte Dateiübertragung — Stufe 0: der Kern, ohne Netz",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  }
+}
