@@ -207,7 +207,13 @@ function send(transport, { identity, expect = null, files, manifest = null, onEv
         return;
       }
 
-      if (msg.t === 'error') fail(new Error(msg.message || 'Die Gegenstelle hat abgebrochen'));
+      if (msg.t === 'error') {
+        // Die Kennung mitnehmen: die Oberflaeche kann daraus einen
+        // brauchbaren Rat machen statt "irgendetwas ging schief".
+        const err = new Error(msg.message || 'Die Gegenstelle hat abgebrochen');
+        if (msg.code) err.code = msg.code;
+        fail(err);
+      }
     };
 
     transport.onData((bytes) => {
@@ -247,8 +253,15 @@ function receive(transport, { identity, expect = null, dir, onEvent = () => {} }
       if (settled) return;
       settled = true;
       // Erst sichern, was schon dalag - der naechste Anlauf baut darauf
-      // auf -, dann auflegen.
+      // auf -, dann Bescheid geben, dann auflegen.
       if (sink) { try { sink.close(); } catch { /* egal */ } }
+      // Ohne diese Nachricht sieht die Gegenstelle nur einen Abriss und
+      // raet, woran es lag. Sie geht erst raus, wenn der Kanal steht -
+      // vorher gibt es niemanden, dem man etwas sagen koennte, und
+      // Unverschluesseltes wuerde nur verraten, wer hier wartet.
+      if (ctx.channel.keys) {
+        try { ctx.sendControl({ t: 'error', message: err.message, code: err.code || null }); } catch { /* egal */ }
+      }
       try { transport.close(); } catch { /* egal */ }
       reject(err);
     };
@@ -303,7 +316,13 @@ function receive(transport, { identity, expect = null, dir, onEvent = () => {} }
         return;
       }
 
-      if (msg.t === 'error') fail(new Error(msg.message || 'Die Gegenstelle hat abgebrochen'));
+      if (msg.t === 'error') {
+        // Die Kennung mitnehmen: die Oberflaeche kann daraus einen
+        // brauchbaren Rat machen statt "irgendetwas ging schief".
+        const err = new Error(msg.message || 'Die Gegenstelle hat abgebrochen');
+        if (msg.code) err.code = msg.code;
+        fail(err);
+      }
     };
 
     transport.onData((bytes) => {

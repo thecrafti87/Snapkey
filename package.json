@@ -4,6 +4,9 @@
   "private": true,
   "description": "Eigener Transport für direkte Dateiübertragung — Stufe 0: der Kern, ohne Netz",
   "license": "MIT",
+  "bin": {
+    "kaiman": "bin/kaiman.js"
+  },
   "scripts": {
     "test": "node --test \"test/**/*.test.js\""
   }

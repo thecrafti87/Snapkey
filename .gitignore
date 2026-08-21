@@ -1,3 +1,6 @@
 node_modules/
 build/
 *.log
+
+# macOS legt das ueberall ab
+.DS_Store

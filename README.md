@@ -97,3 +97,75 @@ Alles, was mit Netz zu tun hat — das ist Stufe 1 und danach. Und die
 Rückstaubehandlung ist erst angelegt: `transport.drain()` wird abgefragt, wenn
 der Transport es anbietet, sonst wird alle 16 Blöcke abgegeben. Ein echter
 Transport bringt das mit.
+
+# Stufe 1 — Nahweg
+
+Jetzt trägt eine echte TCP-Verbindung die Bytes, und ein Rundruf im eigenen
+Netz sagt, wer sonst noch da ist. Aus dem Kern von Stufe 0 wird damit ein
+Werkzeug, das man von der Kommandozeile aus benutzen kann — ohne Server, ohne
+Konto, ohne dass irgendetwas außerhalb des eigenen Netzes davon erfährt.
+
+```bash
+npm install -g .            # oder: node bin/kaiman.js …
+kaiman id                   # eigene Anschrift und Ablageort
+kaiman peers                # wer ist sonst noch da? (6 Sekunden lauschen)
+kaiman listen --neue-annehmen
+kaiman send <anschrift-oder-name> ~/Bilder/urlaub
+```
+
+## Die vier Befehle
+
+**`kaiman id`** — zeigt die eigene Anschrift, den Fingerabdruck und wo der
+Schlüssel liegt.
+
+```bash
+$ kaiman id
+Anschrift:     kaiman:quark-ferse-topf-platte-zitrone-nebel
+Fingerabdruck: 9f2a 6e10 c3b4 0a71
+Ablage:        /Users/anna/.kaiman
+```
+
+**`kaiman peers`** — lauscht sechs Sekunden auf den Rundruf und zeigt, welche
+Geräte im selben Netz geantwortet haben, samt der Frage, ob man mit ihnen
+schon gekoppelt ist.
+
+```bash
+$ kaiman peers
+Suche im Netz (6 s) ...
+Name        Anschrift                             Adresse:Port      Gekoppelt
+----------  ------------------------------------   ---------------   ---------
+Werkstatt   quark-ferse-topf-platte-zitrone-nebel   10.0.0.12:41999   ja
+```
+
+**`kaiman listen [--out ORDNER] [--neue-annehmen] [--port N] [--name NAME]`**
+— startet einen Knoten, der auf eingehende Übertragungen wartet, und läuft,
+bis `Strg+C` ihn sauber beendet. Ohne `--neue-annehmen` kommen nur bereits
+gekoppelte Gegenstellen durch.
+
+```bash
+$ kaiman listen --out ~/Empfangen --neue-annehmen
+Kaiman hört auf kaiman:quark-ferse-topf-platte-zitrone-nebel
+Ziel: /Users/anna/Empfangen
+Neue Gegenstellen werden angenommen.
+Bereit. Strg+C beendet.
+```
+
+**`kaiman send <ziel> <pfad...>`** — `<ziel>` ist eine Anschrift oder ein
+Gerätename, wie ihn `kaiman peers` zeigt. Sucht kurz danach, schickt dann.
+
+```bash
+$ kaiman send Werkstatt ~/Bilder/urlaub
+Suche "Werkstatt" (bis 6 s) ...
+Gefunden: Werkstatt (10.0.0.12:41999)
+  100% - 38.2 MB (Block 39/39)
+Geschickt: 39 Block(e), von der Gegenstelle wiederverwendet: 0, vollständig.
+```
+
+## Ehrlich gesagt: kein mDNS
+
+Die Geräteschau ist ein **eigener** Rundruf auf einer eigenen Multicast-Gruppe
+(`src/net/discovery.js`) — bewusst **kein** mDNS/Bonjour. Das spart mehrere
+hundert Zeilen für ein Drahtformat, das hier niemand braucht. Der Preis:
+fremde Programme sehen die Geräte nicht, und `kaiman` sieht umgekehrt auch
+keine Geräte, die nur mDNS sprechen. Wer wirklich in die Netzwerk-Norm
+integrieren will, tauscht dafür genau diese eine Datei.
