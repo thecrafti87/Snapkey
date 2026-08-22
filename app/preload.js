@@ -21,6 +21,15 @@ contextBridge.exposeInMainWorld('snapkey', {
   pair: (address) => ipcRenderer.invoke('node:pair', address),
   forget: (address) => ipcRenderer.invoke('node:forget', address),
 
+  say: (ziel, texte) => ipcRenderer.invoke('node:say', { ziel, texte }),
+  chats: () => ipcRenderer.invoke('node:chats'),
+  messages: (address) => ipcRenderer.invoke('node:messages', address),
+
+  historyList: () => ipcRenderer.invoke('history:list'),
+  historyClear: () => ipcRenderer.invoke('history:clear'),
+
+  showWindow: () => ipcRenderer.invoke('window:show'),
+
   pickFiles: () => ipcRenderer.invoke('dialog:pickFiles'),
   pickFolder: (current) => ipcRenderer.invoke('dialog:pickFolder', current),
   statPaths: (paths) => ipcRenderer.invoke('fs:stat', paths),
@@ -47,5 +56,19 @@ contextBridge.exposeInMainWorld('snapkey', {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on('send:progress', handler);
     return () => ipcRenderer.removeListener('send:progress', handler);
+  },
+
+  onHistoryChanged: (fn) => {
+    const handler = () => fn();
+    ipcRenderer.on('history:changed', handler);
+    return () => ipcRenderer.removeListener('history:changed', handler);
+  },
+
+  // Ruft von aussen an: Menueleistensymbol oder eine angeklickte
+  // Mitteilung wollen eine bestimmte Ansicht vorne sehen.
+  onOpenView: (fn) => {
+    const handler = (_e, view) => fn(view);
+    ipcRenderer.on('window:openView', handler);
+    return () => ipcRenderer.removeListener('window:openView', handler);
   }
 });

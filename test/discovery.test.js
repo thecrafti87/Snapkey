@@ -114,21 +114,25 @@ test('zwei Geraete im Netz finden sich ueber den echten Rundruf', async (t) => {
   const beaconB = await discovery.start({ identity: B, port: 51002, name: 'Beta', onChange: () => {} });
   t.after(() => { beaconA.stop(); beaconB.stop(); });
 
-  // Im Abstand von 100 ms nachsehen, bis beide sich gefunden haben -
-  // oder nach 8 Sekunden mit einem klaren Fehlschlag aufgeben. Kein
-  // stillschweigendes Uebergehen: geht der Rundruf hier nicht, soll
-  // der Test das melden, nicht so tun, als waere nichts gewesen.
+  // Im Abstand von 100 ms gezielt nach der Gegenstelle Ausschau halten
+  // (nicht nach "irgendjemand ist da") - oder nach 8 Sekunden mit einem
+  // klaren Fehlschlag aufgeben. Sonst faellt der Test um, sobald sonst
+  // noch ein SNAPKEY-Knoten im selben Netz mitlaeuft, obwohl Alpha und
+  // Beta sich sehr wohl gefunden haben. Kein stillschweigendes
+  // Uebergehen bleibt trotzdem: findet A den B (oder umgekehrt) nicht,
+  // soll der Test das weiterhin scharf melden.
   const deadline = Date.now() + 8000;
+  let gesehenVonA = null;
+  let gesehenVonB = null;
   while (Date.now() < deadline) {
-    if (beaconA.peers.length && beaconB.peers.length) break;
+    gesehenVonA = beaconA.peers.find((p) => p.address === B.address) || null;
+    gesehenVonB = beaconB.peers.find((p) => p.address === A.address) || null;
+    if (gesehenVonA && gesehenVonB) break;
     await new Promise((r) => setTimeout(r, 100));
   }
 
-  assert.equal(beaconA.peers.length, 1, 'Alpha hat Beta nicht gefunden - Multicast geht in dieser Umgebung nicht');
-  assert.equal(beaconB.peers.length, 1, 'Beta hat Alpha nicht gefunden - Multicast geht in dieser Umgebung nicht');
-
-  const gesehenVonA = beaconA.peers[0];
-  const gesehenVonB = beaconB.peers[0];
+  assert.ok(gesehenVonA, 'Alpha hat Beta nicht gefunden - Multicast geht in dieser Umgebung nicht');
+  assert.ok(gesehenVonB, 'Beta hat Alpha nicht gefunden - Multicast geht in dieser Umgebung nicht');
 
   assert.equal(gesehenVonA.address, B.address);
   assert.equal(gesehenVonB.address, A.address);

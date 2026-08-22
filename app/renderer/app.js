@@ -31,7 +31,15 @@ const state = {
   meetNote: null,
   portmapNote: null,
   sendRunning: false,
-  currentSendJob: null
+  currentSendJob: null,
+
+  chats: [],               // [{address, name, anzahl, letzte, gekoppelt}]
+  chatSelected: null,       // Anschrift, mit der die Nachrichtenansicht gerade offen ist
+  chatMessages: new Map(),   // Anschrift -> entry[] (Zwischenspeicher, damit ein Wechsel nicht jedesmal neu holt)
+  chatUnread: new Set(),     // Anschriften mit ungesehener Nachricht, waehrend man bei einem anderen Chat stand
+  chatSending: false,
+
+  history: []               // entry[] aus history:list, neueste zuerst
 };
 
 const T = (key, ...args) => t(state.lang, key, ...args);
@@ -45,6 +53,16 @@ function bytes(n) {
   let v = n;
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
   return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
+function formatTime(iso) {
+  try { return new Date(iso).toLocaleTimeString(state.lang, { hour: '2-digit', minute: '2-digit' }); }
+  catch { return ''; }
+}
+
+function formatDateTime(iso) {
+  try { return new Date(iso).toLocaleString(state.lang, { dateStyle: 'medium', timeStyle: 'short' }); }
+  catch { return ''; }
 }
 
 function el(tag, className, text) {
@@ -192,6 +210,123 @@ async function refreshPeers() {
   state.peers = await api.peers();
   renderDevices();
   renderDeviceSelect();
+}
+
+/* ------------------------------ Nachrichten ------------------------------ */
+
+function renderChatList() {
+  const box = $('#chatWho');
+  box.textContent = '';
+
+  // Wer zuletzt geschrieben hat, steht oben; wem man noch nie
+  // geschrieben hat (letzte === null), kommt alphabetisch dahinter.
+  const liste = state.chats.slice().sort((a, b) => {
+    if (a.letzte && b.letzte) return b.letzte.localeCompare(a.letzte);
+    if (a.letzte) return -1;
+    if (b.letzte) return 1;
+    return (a.name || a.address).localeCompare(b.name || b.address);
+  });
+
+  liste.forEach((c) => {
+    const btn = el('button', 'chat__name');
+    btn.type = 'button';
+    btn.dataset.address = c.address;
+    btn.classList.toggle('is-on', c.address === state.chatSelected);
+
+    const top = el('span', 'chat__nameTop');
+    top.append(el('b', null, c.name || c.address));
+    if (state.chatUnread.has(c.address)) top.append(el('span', 'chat__new', '●'));
+    btn.append(top);
+    btn.append(el('span', 'chat__meta', c.letzte ? `${c.anzahl} · ${formatDateTime(c.letzte)}` : ''));
+
+    btn.addEventListener('click', () => selectChat(c.address));
+    box.append(btn);
+  });
+}
+
+function renderChatLog() {
+  const box = $('#chatLog');
+  box.textContent = '';
+  if (!state.chatSelected) return;
+
+  const msgs = state.chatMessages.get(state.chatSelected) || [];
+  if (!msgs.length) {
+    box.append(el('p', 'chat__hollow', T('msg.chatEmpty')));
+    return;
+  }
+
+  msgs.forEach((m) => {
+    const bubble = el('div', 'bubble');
+    bubble.dataset.dir = m.dir;
+    bubble.append(document.createTextNode(m.text));
+    bubble.append(el('time', null, formatTime(m.at)));
+    box.append(bubble);
+  });
+
+  box.scrollTop = box.scrollHeight;
+}
+
+/** Holt den Verlauf mit einer Gegenstelle und zeigt ihn, falls es noch immer der ausgewaehlte Chat ist. */
+async function loadChatMessages(address) {
+  const msgs = await api.messages(address);
+  state.chatMessages.set(address, msgs);
+  if (state.chatSelected === address) renderChatLog();
+}
+
+async function selectChat(address) {
+  state.chatSelected = address;
+  state.chatUnread.delete(address);
+  $('#chatError').textContent = '';
+  renderChatList();
+  await loadChatMessages(address);
+}
+
+function renderMessagesView() {
+  const hatChats = state.chats.length > 0;
+  $('#msgEmpty').hidden = hatChats;
+  $('#chatBox').hidden = !hatChats;
+  if (!hatChats) return;
+
+  if (!state.chatSelected || !state.chats.some((c) => c.address === state.chatSelected)) {
+    state.chatSelected = state.chats[0].address;
+  }
+  renderChatList();
+  if (state.chatMessages.has(state.chatSelected)) renderChatLog();
+  else loadChatMessages(state.chatSelected);
+}
+
+async function refreshChats() {
+  state.chats = await api.chats();
+  renderMessagesView();
+}
+
+async function onChatSend() {
+  if (state.chatSending) return;
+  const address = state.chatSelected;
+  if (!address) return;
+
+  const feld = $('#chatInput');
+  const text = feld.value.trim();
+  if (!text) return;
+
+  state.chatSending = true;
+  feld.value = '';
+  $('#chatError').textContent = '';
+
+  const res = await api.say(address, [text]);
+
+  if (!res || res.ok === false) {
+    const meldung = (res && res.message) || T('msg.sendFailed');
+    $('#chatError').textContent = meldung;
+    toast(meldung, 'bad');
+    feld.value = text;   // nichts verschlucken - der Text bleibt stehen, zum erneuten Versuch
+  } else {
+    await loadChatMessages(address);
+    await refreshChats();
+  }
+
+  state.chatSending = false;
+  feld.focus();
 }
 
 /* -------------------------------- Dateien ------------------------------- */
@@ -352,6 +487,8 @@ function renderSettingsForm() {
   $('#setMeetPort').value = s.meetPort || 41997;
   $('#setMeetPass').value = s.meetPass || '';
   $('#setPortmap').checked = Boolean(s.portmap);
+  $('#setTray').checked = s.tray !== false;
+  $('#setNotify').checked = s.notify !== false;
 
   $('#recvOutDir').value = state.outDir || '';
   $('#recvTrustNew').checked = Boolean(s.trustNew);
@@ -395,6 +532,118 @@ async function setSetting(patch) {
   renderSettingsNotes();
 }
 
+/* --------------------------------- Verlauf -------------------------------- */
+
+function historySummary(entry) {
+  const teile = [];
+  if (entry.files !== undefined && entry.bytes !== undefined) teile.push(T('send.summary', entry.files, bytes(entry.bytes)));
+  else if (entry.bytes !== undefined) teile.push(bytes(entry.bytes));
+  if (entry.route) teile.push(T(ROUTE_KEY[entry.route] || entry.route));
+  teile.push(formatDateTime(entry.at));
+  return teile.join(' · ');
+}
+
+function historyRowEl(entry) {
+  const row = el('div', 'log__row');
+  row.dataset.kind = entry.kind;
+
+  row.append(el('span', 'log__arrow', entry.kind === 'send' ? '↑' : '↓'));
+
+  const main = el('div', 'log__main');
+  main.append(el('div', 'log__name', entry.name || entry.peer || T('hist.unknownPeer')));
+  main.append(el('div', 'log__sub', historySummary(entry)));
+  row.append(main);
+
+  const zustand = el('span', 'log__state', entry.ok ? T('job.stateDone') : T('job.stateFailed'));
+  zustand.dataset.tone = entry.ok ? 'ok' : 'bad';
+  if (entry.error) zustand.title = entry.error;
+  row.append(zustand);
+
+  const acts = el('div', 'log__acts');
+
+  if (entry.kind === 'receive' && entry.outDir) {
+    const btn = el('button', 'btn btn--ghost btn--sm', T('hist.reveal'));
+    btn.type = 'button';
+    btn.addEventListener('click', () => api.reveal(entry.outDir));
+    acts.append(btn);
+  }
+
+  if (entry.kind === 'send' && entry.paths && entry.paths.length) {
+    const btn = el('button', 'btn btn--ghost btn--sm', T('hist.resend'));
+    btn.type = 'button';
+    btn.disabled = true;
+    acts.append(btn);
+
+    // Erst pruefen, ob die Pfade noch da sind - solange das laeuft,
+    // bleibt der Knopf ausgegraut, nicht scheinbar bereit.
+    api.statPaths(entry.paths).then((stats) => {
+      const fehlt = stats.some((s) => s.missing);
+      btn.disabled = fehlt;
+      btn.title = fehlt ? T('hist.pathsGone') : '';
+      if (!fehlt) btn.addEventListener('click', () => onResend(entry, stats));
+    });
+  }
+
+  row.append(acts);
+  return row;
+}
+
+function renderHistory() {
+  const box = $('#histLog');
+  box.textContent = '';
+  $('#histEmpty').hidden = state.history.length > 0;
+  state.history.forEach((entry) => box.append(historyRowEl(entry)));
+}
+
+async function refreshHistory() {
+  state.history = await api.historyList();
+  renderHistory();
+}
+
+/** Uebernimmt eine vergangene Sendung wieder in die Ansicht Senden - die Pfade wurden schon geprueft. */
+async function onResend(entry, stats) {
+  state.files = stats.filter((s) => !s.missing);
+  renderFileList();
+
+  $('#sendAddress').value = '';
+  $('#sendDeviceSelect').value = '';
+  const peer = entry.peer && state.peers.find((p) => p.address === entry.peer);
+  if (peer) $('#sendDeviceSelect').value = peer.address;
+  else if (entry.peer) $('#sendAddress').value = `snapkey:${entry.peer}`;
+
+  activateView('send');
+  toast(T('hist.resendReady'), 'good');
+}
+
+let histClearArmed = false;
+let histClearTimer = null;
+
+function disarmHistClear() {
+  histClearArmed = false;
+  clearTimeout(histClearTimer);
+  const btn = $('#histClear');
+  btn.classList.remove('btn--stop');
+  btn.textContent = T('hist.clear');
+}
+
+function armHistClear() {
+  histClearArmed = true;
+  const btn = $('#histClear');
+  btn.classList.add('btn--stop');
+  btn.textContent = T('hist.clearConfirm');
+  clearTimeout(histClearTimer);
+  // Nicht ewig scharf stehen lassen - wer den zweiten Klick vergisst,
+  // soll nicht Tage spaeter aus Versehen alles loeschen.
+  histClearTimer = setTimeout(disarmHistClear, 4000);
+}
+
+async function onHistClear() {
+  if (!histClearArmed) { armHistClear(); return; }
+  disarmHistClear();
+  state.history = await api.historyClear();
+  renderHistory();
+}
+
 /* -------------------------------- Zustand -------------------------------- */
 
 async function refreshState() {
@@ -416,6 +665,9 @@ function renderAll() {
   renderSettingsNotes();
   renderFileList();
   renderJobs();
+  renderMessagesView();
+  renderHistory();
+  disarmHistClear();
 }
 
 /* --------------------------- Knotenereignisse --------------------------- */
@@ -485,7 +737,20 @@ function handleNodeEvent(e) {
       }
       renderJobs();
       refreshPeers();
-      merkeEingang();
+      merkeEingang('receive');
+      break;
+    }
+
+    case 'message': {
+      if (currentView() === 'messages' && state.chatSelected === e.address) {
+        // Steht man genau bei diesem Gespraech, erzwingt das Loeschen
+        // aus dem Zwischenspeicher, dass refreshChats() unten frisch holt.
+        state.chatMessages.delete(e.address);
+      } else {
+        state.chatUnread.add(e.address);
+        if (currentView() !== 'messages') merkeEingang('messages');
+      }
+      refreshChats();
       break;
     }
 
@@ -589,20 +854,31 @@ async function onSendStart() {
 
 /* --------------------------------- Verdrahtung -------------------------------- */
 
-/** Markiert die Leiste, wenn man beim Eingang gerade woanders steht. */
-function merkeEingang() {
-  const knopf = $$('.rail__item').find((b) => b.dataset.view === 'receive');
+/** Welche Ansicht gerade vorne steht - ohne das "view-" davor. */
+function currentView() {
+  const v = $('.view.is-active');
+  return v ? v.id.slice('view-'.length) : null;
+}
+
+/** Markiert eine Leistenkennung, wenn man gerade woanders steht - dieselbe Machart fuer Eingang wie Nachrichten. */
+function merkeEingang(view = 'receive') {
+  const knopf = $$('.rail__item').find((b) => b.dataset.view === view);
   if (knopf && !knopf.classList.contains('is-active')) knopf.classList.add('has-watch');
+}
+
+/** Wechselt die Ansicht - von der Leiste selbst, aber auch von aussen (Mitteilung, Menueleistensymbol). */
+function activateView(view) {
+  const knopf = $$('.rail__item').find((b) => b.dataset.view === view);
+  if (!knopf) return;
+  $$('.rail__item').forEach((b) => b.classList.toggle('is-active', b === knopf));
+  $$('.view').forEach((v) => v.classList.toggle('is-active', v.id === `view-${view}`));
+  // Wer hinsieht, hat es gesehen.
+  knopf.classList.remove('has-watch');
 }
 
 function wireNav() {
   $$('.rail__item').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      $$('.rail__item').forEach((b) => b.classList.toggle('is-active', b === btn));
-      $$('.view').forEach((v) => v.classList.toggle('is-active', v.id === `view-${btn.dataset.view}`));
-      // Wer hinsieht, hat es gesehen.
-      btn.classList.remove('has-watch');
-    });
+    btn.addEventListener('click', () => activateView(btn.dataset.view));
   });
 }
 
@@ -659,10 +935,14 @@ function wireDevices() {
       state.peers = await api.pair(pairBtn.dataset.pair);
       renderDevices();
       renderDeviceSelect();
+      // Wer koppelt, will als Naechstes meist schreiben. Ohne das bliebe
+      // die Gespraechsliste bis zum Neustart leer.
+      refreshChats();
     } else if (forgetBtn) {
       state.peers = await api.forget(forgetBtn.dataset.forget);
       renderDevices();
       renderDeviceSelect();
+      refreshChats();
     } else if (copyBtn) {
       await api.copy(copyBtn.dataset.copy);
       toast(T('toast.copied'), 'good');
@@ -683,6 +963,21 @@ function wireSettings() {
   $('#setMeetPort').addEventListener('change', () => setSetting({ meetPort: Number($('#setMeetPort').value) || 41997 }));
   $('#setMeetPass').addEventListener('change', () => setSetting({ meetPass: $('#setMeetPass').value }));
   $('#setPortmap').addEventListener('change', () => setSetting({ portmap: $('#setPortmap').checked }));
+  $('#setTray').addEventListener('change', () => setSetting({ tray: $('#setTray').checked }));
+  $('#setNotify').addEventListener('change', () => setSetting({ notify: $('#setNotify').checked }));
+}
+
+function wireMessages() {
+  $('#chatSend').addEventListener('click', onChatSend);
+  $('#chatInput').addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter' || ev.shiftKey) return;
+    ev.preventDefault();
+    onChatSend();
+  });
+}
+
+function wireHistory() {
+  $('#histClear').addEventListener('click', onHistClear);
 }
 
 /* ---------------------------------- Start ---------------------------------- */
@@ -701,15 +996,21 @@ async function init() {
 
   await refreshState();
   await refreshPeers();
+  await refreshChats();
+  await refreshHistory();
 
   wireNav();
   wireSend();
   wireReceive();
   wireDevices();
   wireSettings();
+  wireMessages();
+  wireHistory();
 
   api.onEvent(handleNodeEvent);
   api.onSendProgress(handleSendProgress);
+  api.onHistoryChanged(refreshHistory);
+  api.onOpenView((view) => activateView(view));
 
   applyLang();
 }

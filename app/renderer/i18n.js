@@ -22,7 +22,9 @@ const I18N = {
   en: {
     'nav.send': 'Send',
     'nav.receive': 'Receive',
+    'nav.messages': 'Messages',
     'nav.devices': 'Devices',
+    'nav.history': 'History',
     'nav.settings': 'Settings',
 
     'app.running': 'ready',
@@ -75,7 +77,16 @@ const I18N = {
     'recv.trustNew': 'Accept new devices',
     'recv.empty': 'No transfers yet.',
 
-    'dev.kicker': '03 · nearby',
+    'msg.kicker': '03 · conversations',
+    'msg.title': 'Messages',
+    'msg.lede': 'Short messages over the same encrypted line as the files - no server in between.',
+    'msg.empty': 'No devices paired yet - pair one first, then there is someone to write to.',
+    'msg.chatEmpty': 'No messages yet. Write the first line.',
+    'msg.placeholder': 'Type a message …',
+    'msg.send': 'Send',
+    'msg.sendFailed': 'The message did not go out.',
+
+    'dev.kicker': '04 · nearby',
     'dev.title': 'Devices',
     'dev.lede': 'What the network scan has found, and what is already paired.',
     'dev.empty': 'No devices found yet - make sure the other device is on and on the same network.',
@@ -88,7 +99,19 @@ const I18N = {
     'dev.paired': 'Paired',
     'dev.notPaired': 'Not paired yet',
 
-    'set.kicker': '04 · configuration',
+    'hist.kicker': '05 · history',
+    'hist.title': 'History',
+    'hist.lede': 'Every finished transfer, in both directions - kept on this device only.',
+    'hist.empty': 'Nothing here yet.',
+    'hist.clear': 'Clear history',
+    'hist.clearConfirm': 'Really clear?',
+    'hist.resend': 'Send again',
+    'hist.reveal': 'Show folder',
+    'hist.pathsGone': 'One or more files are no longer at that location.',
+    'hist.resendReady': 'Selection taken over to Send.',
+    'hist.unknownPeer': 'Unknown device',
+
+    'set.kicker': '06 · configuration',
     'set.title': 'Settings',
     'set.lede': 'What the node gets when it opens - a change here closes it and opens it again.',
     'set.name': 'Device name',
@@ -113,15 +136,31 @@ const I18N = {
     'set.portmapMapped': 'Reachable from outside at {0} ({1})',
     'set.portmapLost': 'The port mapping expired and could not be renewed.',
     'set.portmapNone': 'None of the three methods worked - normal on many networks, not an error.',
+    'set.appGroup': 'Application',
+    'set.tray': 'Show a menu bar icon',
+    'set.notify': 'Show notifications',
 
-    'toast.copied': 'Copied to the clipboard'
+    'toast.copied': 'Copied to the clipboard',
+
+    'tray.show': 'Show window',
+    'tray.sendFiles': 'Send files',
+    'tray.quit': 'Quit',
+
+    'notify.receivedTitle': 'Transfer complete',
+    'notify.receivedBody': 'From {0}',
+    'notify.messageTitle': 'New message from {0}',
+    'notify.messageBody': '{0}',
+    'notify.refusedTitle': 'Call refused',
+    'notify.refusedBody': '{0}'
   },
 
   /* ------------------------------- DE ------------------------------- */
   de: {
     'nav.send': 'Senden',
     'nav.receive': 'Empfangen',
+    'nav.messages': 'Nachrichten',
     'nav.devices': 'Geräte',
+    'nav.history': 'Verlauf',
     'nav.settings': 'Einstellungen',
 
     'app.running': 'bereit',
@@ -174,7 +213,16 @@ const I18N = {
     'recv.trustNew': 'Neue Geräte annehmen',
     'recv.empty': 'Noch keine Übertragungen.',
 
-    'dev.kicker': '03 · in der Nähe',
+    'msg.kicker': '03 · Unterhaltungen',
+    'msg.title': 'Nachrichten',
+    'msg.lede': 'Kurznachrichten über denselben verschlüsselten Weg wie die Dateien - kein Server dazwischen.',
+    'msg.empty': 'Noch kein Gerät gekoppelt - erst eins koppeln, dann gibt es jemanden zum Schreiben.',
+    'msg.chatEmpty': 'Noch keine Nachrichten. Schreib die erste Zeile.',
+    'msg.placeholder': 'Nachricht schreiben …',
+    'msg.send': 'Senden',
+    'msg.sendFailed': 'Die Nachricht ist nicht rausgegangen.',
+
+    'dev.kicker': '04 · in der Nähe',
     'dev.title': 'Geräte',
     'dev.lede': 'Was der Rundruf gefunden hat, und was schon gekoppelt ist.',
     'dev.empty': 'Noch kein Gerät gefunden - sicherstellen, dass das andere Gerät an und im selben Netz ist.',
@@ -187,7 +235,19 @@ const I18N = {
     'dev.paired': 'Gekoppelt',
     'dev.notPaired': 'Noch nicht gekoppelt',
 
-    'set.kicker': '04 · Einrichtung',
+    'hist.kicker': '05 · Verlauf',
+    'hist.title': 'Verlauf',
+    'hist.lede': 'Jede abgeschlossene Übertragung, in beide Richtungen - bleibt nur auf diesem Gerät.',
+    'hist.empty': 'Noch nichts hier.',
+    'hist.clear': 'Verlauf leeren',
+    'hist.clearConfirm': 'Wirklich leeren?',
+    'hist.resend': 'Erneut senden',
+    'hist.reveal': 'Zielordner zeigen',
+    'hist.pathsGone': 'Eine oder mehrere Dateien liegen dort nicht mehr.',
+    'hist.resendReady': 'Auswahl nach Senden übernommen.',
+    'hist.unknownPeer': 'Unbekanntes Gerät',
+
+    'set.kicker': '06 · Einrichtung',
     'set.title': 'Einstellungen',
     'set.lede': 'Was der Knoten beim Öffnen bekommt - eine Änderung hier schliesst ihn und öffnet ihn neu.',
     'set.name': 'Gerätename',
@@ -212,15 +272,31 @@ const I18N = {
     'set.portmapMapped': 'Von aussen erreichbar unter {0} ({1})',
     'set.portmapLost': 'Die Portfreigabe ist abgelaufen und liess sich nicht erneuern.',
     'set.portmapNone': 'Keines der drei Verfahren hat geklappt - normal in vielen Netzen, kein Fehler.',
+    'set.appGroup': 'Anwendung',
+    'set.tray': 'Symbol in der Menüleiste zeigen',
+    'set.notify': 'Mitteilungen zeigen',
 
-    'toast.copied': 'In die Zwischenablage kopiert'
+    'toast.copied': 'In die Zwischenablage kopiert',
+
+    'tray.show': 'Fenster zeigen',
+    'tray.sendFiles': 'Dateien senden',
+    'tray.quit': 'Beenden',
+
+    'notify.receivedTitle': 'Übertragung abgeschlossen',
+    'notify.receivedBody': 'Von {0}',
+    'notify.messageTitle': 'Neue Nachricht von {0}',
+    'notify.messageBody': '{0}',
+    'notify.refusedTitle': 'Anruf abgewiesen',
+    'notify.refusedBody': '{0}'
   },
 
   /* ------------------------------- FR ------------------------------- */
   fr: {
     'nav.send': 'Envoyer',
     'nav.receive': 'Recevoir',
+    'nav.messages': 'Messages',
     'nav.devices': 'Appareils',
+    'nav.history': 'Historique',
     'nav.settings': 'Réglages',
 
     'app.running': 'prêt',
@@ -273,7 +349,16 @@ const I18N = {
     'recv.trustNew': 'Accepter les nouveaux appareils',
     'recv.empty': 'Aucun envoi pour le moment.',
 
-    'dev.kicker': '03 · à proximité',
+    'msg.kicker': '03 · conversations',
+    'msg.title': 'Messages',
+    'msg.lede': 'Messages courts via la même liaison chiffrée que les fichiers - aucun serveur entre les deux.',
+    'msg.empty': 'Aucun appareil jumelé pour le moment - jumelez-en un d’abord, il y aura alors quelqu’un à qui écrire.',
+    'msg.chatEmpty': 'Aucun message pour le moment. Écrivez la première ligne.',
+    'msg.placeholder': 'Écrire un message …',
+    'msg.send': 'Envoyer',
+    'msg.sendFailed': 'Le message n’est pas parti.',
+
+    'dev.kicker': '04 · à proximité',
     'dev.title': 'Appareils',
     'dev.lede': 'Ce que la recherche réseau a trouvé, et ce qui est déjà jumelé.',
     'dev.empty': 'Aucun appareil trouvé pour le moment - vérifiez que l’autre appareil est allumé et sur le même réseau.',
@@ -286,7 +371,19 @@ const I18N = {
     'dev.paired': 'Jumelé',
     'dev.notPaired': 'Pas encore jumelé',
 
-    'set.kicker': '04 · configuration',
+    'hist.kicker': '05 · historique',
+    'hist.title': 'Historique',
+    'hist.lede': 'Chaque envoi terminé, dans les deux sens - conservé uniquement sur cet appareil.',
+    'hist.empty': 'Rien ici pour le moment.',
+    'hist.clear': 'Vider l’historique',
+    'hist.clearConfirm': 'Vraiment vider ?',
+    'hist.resend': 'Renvoyer',
+    'hist.reveal': 'Afficher le dossier',
+    'hist.pathsGone': 'Un ou plusieurs fichiers ne se trouvent plus à cet endroit.',
+    'hist.resendReady': 'Sélection reprise dans Envoyer.',
+    'hist.unknownPeer': 'Appareil inconnu',
+
+    'set.kicker': '06 · configuration',
     'set.title': 'Réglages',
     'set.lede': 'Ce que le nœud reçoit à l’ouverture - une modification ici le ferme et le rouvre.',
     'set.name': 'Nom de l’appareil',
@@ -311,8 +408,22 @@ const I18N = {
     'set.portmapMapped': 'Joignable de l’extérieur à {0} ({1})',
     'set.portmapLost': 'L’ouverture de port a expiré et n’a pas pu être renouvelée.',
     'set.portmapNone': 'Aucune des trois méthodes n’a fonctionné - normal sur de nombreux réseaux, ce n’est pas une erreur.',
+    'set.appGroup': 'Application',
+    'set.tray': 'Afficher une icône dans la barre de menus',
+    'set.notify': 'Afficher les notifications',
 
-    'toast.copied': 'Copié dans le presse-papiers'
+    'toast.copied': 'Copié dans le presse-papiers',
+
+    'tray.show': 'Afficher la fenêtre',
+    'tray.sendFiles': 'Envoyer des fichiers',
+    'tray.quit': 'Quitter',
+
+    'notify.receivedTitle': 'Envoi terminé',
+    'notify.receivedBody': 'De {0}',
+    'notify.messageTitle': 'Nouveau message de {0}',
+    'notify.messageBody': '{0}',
+    'notify.refusedTitle': 'Appel refusé',
+    'notify.refusedBody': '{0}'
   }
 };
 

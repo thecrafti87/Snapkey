@@ -34,9 +34,17 @@
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v15M12 19l-6-6M12 19l6-6"/><path d="M4 21h16" class="thin"/></svg>
       <span data-i18n="nav.receive">Receive</span>
     </button>
+    <button class="rail__item" data-view="messages" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-4 4z"/><path d="M8 10h8M8 13.5h5" class="thin"/></svg>
+      <span data-i18n="nav.messages">Messages</span>
+    </button>
     <button class="rail__item" data-view="devices" type="button">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="18" r="2.2"/><circle cx="19" cy="18" r="2.2"/><path d="M12 7.2 7 15.8M12 7.2l5 8.6M7.2 18h9.6" class="thin"/></svg>
       <span data-i18n="nav.devices">Devices</span>
+    </button>
+    <button class="rail__item" data-view="history" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2" class="thin"/></svg>
+      <span data-i18n="nav.history">History</span>
     </button>
     <button class="rail__item" data-view="settings" type="button">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></svg>
@@ -129,6 +137,31 @@
       <p class="empty" id="recvEmpty" data-i18n="recv.empty"></p>
     </section>
 
+    <!-- ============================ NACHRICHTEN ========================== -->
+    <section class="view" id="view-messages">
+      <div class="ghost">MSG</div>
+      <div class="head">
+        <p class="kicker" data-i18n="msg.kicker"></p>
+        <h1 data-i18n="msg.title"></h1>
+        <p class="lede" data-i18n="msg.lede"></p>
+      </div>
+
+      <div class="chat" id="chatBox" hidden>
+        <div class="chat__who" id="chatWho"></div>
+        <div class="chat__side">
+          <div class="chat__log" id="chatLog"></div>
+          <div class="chat__box">
+            <textarea id="chatInput" rows="2" data-i18n-ph="msg.placeholder" spellcheck="true"></textarea>
+            <div class="chat__acts">
+              <button class="btn btn--go" id="chatSend" type="button" data-i18n="msg.send"></button>
+              <span class="hint" id="chatError" data-tone="bad"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="empty" id="msgEmpty" data-i18n="msg.empty"></p>
+    </section>
+
     <!-- ============================= GERAETE ============================ -->
     <section class="view" id="view-devices">
       <div class="ghost">DEV</div>
@@ -140,6 +173,23 @@
 
       <div class="cards" id="deviceList"></div>
       <p class="empty" id="deviceEmpty" data-i18n="dev.empty"></p>
+    </section>
+
+    <!-- ============================== VERLAUF ============================ -->
+    <section class="view" id="view-history">
+      <div class="ghost">HIS</div>
+      <div class="head">
+        <p class="kicker" data-i18n="hist.kicker"></p>
+        <h1 data-i18n="hist.title"></h1>
+        <p class="lede" data-i18n="hist.lede"></p>
+      </div>
+
+      <div class="act">
+        <button class="btn btn--ghost" id="histClear" type="button" data-i18n="hist.clear"></button>
+      </div>
+
+      <div class="log" id="histLog"></div>
+      <p class="empty" id="histEmpty" data-i18n="hist.empty"></p>
     </section>
 
     <!-- =========================== EINSTELLUNGEN ========================= -->
@@ -188,6 +238,11 @@
           <span data-i18n="set.network"></span>
           <label class="switch"><input type="checkbox" id="setPortmap"><i></i><span data-i18n="set.portmap"></span></label>
           <p class="hint" id="portmapNote"></p>
+        </div>
+        <div class="lbl lbl--switches">
+          <span data-i18n="set.appGroup"></span>
+          <label class="switch"><input type="checkbox" id="setTray"><i></i><span data-i18n="set.tray"></span></label>
+          <label class="switch"><input type="checkbox" id="setNotify"><i></i><span data-i18n="set.notify"></span></label>
         </div>
         <label class="lbl">
           <span data-i18n="set.lang"></span>

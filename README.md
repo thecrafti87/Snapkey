@@ -11,7 +11,7 @@ Ein eigenes Protokoll, kein Aufsatz auf ein fremdes Werkzeug. **Ohne ein
 einziges Fremdpaket** — alles, was es braucht, ist in Node eingebaut.
 
 ```bash
-npm test                   # 171 Prüfungen, rund acht Sekunden
+npm test                   # 201 Prüfungen, rund acht Sekunden
 node test/vorfuehrung.js   # 39 MB übertragen, abbrechen, fortsetzen
 snapkey help               # die Befehle
 ```
@@ -460,7 +460,7 @@ Electron-Anwendungsdaten (`app/settings.json` im `userData`-Ordner), nicht
 unter `~/.snapkey` — dort liegen weiterhin nur Schlüssel und Gegenstellen,
 das gehört allein dem Kern.
 
-Eine Leiste links, vier Ansichten rechts:
+Eine Leiste links, sechs Ansichten rechts:
 
 - **Senden** — Dateien und Ordner per Ablagefläche oder Dialog auswählen,
   ein Gerät aus der Liste wählen oder eine Anschrift von Hand eintragen,
@@ -473,13 +473,46 @@ Eine Leiste links, vier Ansichten rechts:
   mit Ändern-Knopf, der Schalter „neue Geräte annehmen", und die Liste der
   eingegangenen Übertragungen — abgewiesene Anrufe eingeschlossen, mit dem
   Grund.
+- **Nachrichten** — links die Gesprächspartner (wer schon geschrieben hat,
+  ergänzt um gekoppelte Geräte ohne Verlauf), rechts der Chatverlauf als
+  Sprechblasen, eingehend und ausgehend unterschieden, mit Uhrzeit. Enter
+  schickt ab, Umschalt+Enter macht eine neue Zeile. Kommt etwas herein,
+  während man woanders steht, bekommt die Leiste einen Punkt — steht man
+  bereits in den Nachrichten, aber bei einem anderen Gesprächspartner, wird
+  stattdessen dessen Eintrag in der Liste markiert. Der Kern selbst führt
+  keinen Verlauf über einen Neustart hinaus (`say`/`listen`, siehe oben) —
+  das übernimmt `src/node/messages.js`, mit denselben Dateirechten wie der
+  Schlüssel.
 - **Geräte** — was der Rundruf im eigenen Netz gerade findet, zusammengeführt
   mit dem, was schon gekoppelt ist. Anschrift kopierbar, dazu Knöpfe zum
   Koppeln bzw. Vergessen.
+- **Verlauf** — jede abgeschlossene Übertragung, in beide Richtungen: Richtung,
+  Gegenstelle, Menge, genommener Weg, Zeitpunkt, Ergebnis. Bei Empfangenem ein
+  Knopf, der den Zielordner zeigt; bei Gesendetem einer, der dieselbe Auswahl
+  erneut in die Ansicht Senden übernimmt — nur, wenn die Pfade noch existieren,
+  sonst ausgegraut mit Grund. Ein Knopf leert den Verlauf, zweistufig (ein
+  Klick fragt nach, der zweite löscht). Anders als die Nachrichten führt der
+  Kern hierüber gar kein eigenes Gedächtnis — das übernimmt `app/history.js`,
+  eine reine Sache der Hülle, mit denselben Dateirechten (0600) und
+  höchstens 200 Einträgen. Weder Schlüssel noch Nachrichtentexte landen darin.
 - **Einstellungen** — Gerätename, Zielordner, Port, „neue annehmen",
   Blockwiedererkennung, Treffpunkt (Adresse, Port, Passwort), Portfreigabe,
-  Sprache (Deutsch, Englisch, Französisch). Unten die Fassung und der
-  Hinweis, wo die Schlüssel liegen.
+  Menüleistensymbol und Mitteilungen (beide abschaltbar), Sprache (Deutsch,
+  Englisch, Französisch). Unten die Fassung und der Hinweis, wo die Schlüssel
+  liegen.
+
+Dazu, außerhalb der Ansichten selbst:
+
+- **Menüleistensymbol** — auf macOS eine einfarbige Schablone
+  (`app/assets/crocTemplate.png`), sonst das farbige `icon.png`. Ein Menü
+  mit „Fenster zeigen", „Dateien senden" und „Beenden"; ein Klick auf das
+  Symbol selbst holt ebenfalls das Fenster nach vorn. Abschaltbar in den
+  Einstellungen (`tray`, Vorgabe an).
+- **Mitteilungen** — über Electrons `Notification`, bei abgeschlossenem
+  Empfang, bei eingegangener Nachricht und bei einem abgewiesenen Anruf, aber
+  nur, wenn das Fenster gerade nicht im Vordergrund ist — wer hinsieht, hat es
+  schon gesehen. Ein Klick darauf holt das Fenster nach vorn und öffnet die
+  passende Ansicht. Ebenfalls abschaltbar (`notify`, Vorgabe an).
 
 Zwei Fenster gegeneinander ausprobieren: jedes bekommt sein eigenes
 `SNAPKEY_HOME`, damit sie nicht dieselben Schlüssel teilen.
@@ -489,18 +522,10 @@ SNAPKEY_HOME=~/.snapkey-a npm run app
 SNAPKEY_HOME=~/.snapkey-b npm run app
 ```
 
-## Was diese erste Stufe noch nicht kann
+## Was diese Oberfläche noch nicht kann
 
 Ehrlich gesagt, und nicht verschwiegen:
 
-- **Keine Kurznachrichten** — der Kern kann `say`/`listen` (siehe oben), die
-  Oberfläche zeigt bislang keine Ansicht dafür an.
-- **Kein Verlauf** — weder abgeschlossene Übertragungen noch Nachrichten
-  überstehen einen Neustart des Fensters, es wird nichts mitgeschrieben.
-- **Kein Menüleistensymbol** — kein Tray-Icon, kein Schließen ins Symbol
-  hinein, das Fenster ist die ganze Anwendung.
-- **Keine Mitteilungen** — nichts meldet sich außerhalb des Fensters, wenn
-  eine Übertragung ankommt, während man woanders ist.
 - **Kein Selbstupdate** — eine neue Fassung bedeutet neu bauen und neu
   starten, kein Blick auf veröffentlichte Fassungen.
 - **Kein fertiges Paket** — es gibt kein `.dmg`, `.exe` oder `.AppImage` zum

@@ -25,7 +25,11 @@ const DEFAULTS = {
   meetPort: 41997,
   meetPass: '',
   portmap: false,
-  lang: 'en'
+  lang: 'en',
+  // Beide betreffen nur die Huelle (Menueleistensymbol, Mitteilungen),
+  // nicht den Knoten - deshalb auch nicht in NODE_FELDER unten.
+  tray: true,
+  notify: true
 };
 
 // Diese Felder aendern, was der Knoten beim Oeffnen bekommt - eine
