@@ -16,13 +16,35 @@ const os = require('os');
 const session = require('../core/session');
 const chunks = require('../core/chunks');
 const tcp = require('../net/tcp');
+const meetClient = require('../net/meet');
 const discovery = require('../net/discovery');
 const store = require('./store');
+
+// Wie lange nach einem gescheiterten Anlauf am Treffpunkt gewartet wird,
+// bevor der Knoten es erneut versucht - wachsend, aber gedeckelt: ein
+// Treffpunkt, der laenger down ist, soll nicht zum Dauerklopfen fuehren.
+const MEET_RETRY_MS = 5000;
+const MEET_RETRY_MAX_MS = 30000;
+
+/** Wartet, laesst sich aber vorzeitig durch ein AbortSignal aufwecken. */
+function warten(ms, signal) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    if (timer.unref) timer.unref();
+    if (!signal) return;
+    if (signal.aborted) { clearTimeout(timer); resolve(); return; }
+    signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+  });
+}
 
 /**
  * `trustNew`  ob eine unbekannte Gegenstelle beim ersten Mal
  *             angenommen wird. Aus, solange nichts anderes gesagt ist:
  *             sonst koennte jeder im selben Netz Dateien ablegen.
+ * `meet`      { host, port, pass } - ist das gesetzt, meldet sich der
+ *             Knoten zusaetzlich zum eigenen Zuhoerer an einem
+ *             Treffpunkt an, fuer Gegenstellen, die er im eigenen Netz
+ *             nicht erreicht.
  */
 async function open({
   home,
@@ -31,6 +53,7 @@ async function open({
   port = 0,
   trustNew = false,
   announce = true,
+  meet = null,
   // Blockwiedererkennung: was schon irgendwo im Zielordner liegt, wird
   // nicht noch einmal uebertragen. Abschaltbar, weil das Durchlesen des
   // Zielordners bei sehr grossen Ablagen spuerbar sein kann.
@@ -74,8 +97,13 @@ async function open({
     return { address, neu: true };
   }
 
-  const server = await tcp.listen(port, async (transport) => {
-    const von = transport.remote;
+  /**
+   * Ein eingehender Anruf, gleich woher: aus dem eigenen Zuhoerer oder
+   * aus einer Vermittlung ueber den Treffpunkt. Dieselbe Torkontrolle
+   * gilt in beiden Faellen - der Treffpunkt beglaubigt niemanden, das
+   * bleibt allein Sache des Handschlags.
+   */
+  async function alsAnruf(transport, von) {
     onEvent({ type: 'incoming', from: von });
 
     try {
@@ -99,7 +127,9 @@ async function open({
     } finally {
       transport.close();
     }
-  });
+  }
+
+  const server = await tcp.listen(port, (transport) => alsAnruf(transport, transport.remote));
 
   /* -------------------------- Sich zeigen -------------------------- */
 
@@ -112,17 +142,70 @@ async function open({
     })
     : null;
 
+  /* --------------------- Am Treffpunkt erreichbar --------------------- */
+
+  const meetAbbruch = meet ? new AbortController() : null;
+  let meetSchliessend = false;
+  let meetLaufend = null;   // die gerade offene Verbindung zum Treffpunkt
+
+  async function meetSchleife() {
+    let warteZeit = MEET_RETRY_MS;
+
+    while (!meetSchliessend) {
+      let transport;
+      try {
+        onEvent({
+          type: 'meet',
+          state: 'verbinden',
+          message: `Melde mich am Treffpunkt ${meet.host}:${meet.port} an ...`
+        });
+        transport = await meetClient.register(meet.host, meet.port, {
+          address: me.address,
+          pass: meet.pass,
+          signal: meetAbbruch.signal
+        });
+      } catch (err) {
+        if (meetSchliessend) break;
+        onEvent({ type: 'meet', state: 'fehler', message: err.message });
+        await warten(warteZeit, meetAbbruch.signal);
+        warteZeit = Math.min(warteZeit + MEET_RETRY_MS, MEET_RETRY_MAX_MS);
+        continue;
+      }
+
+      warteZeit = MEET_RETRY_MS;    // ein geglueckter Anlauf setzt zurueck
+      if (meetSchliessend) { transport.close(); break; }
+
+      meetLaufend = transport;
+      onEvent({ type: 'meet', state: 'angemeldet', message: `Erreichbar über ${meet.host}:${meet.port}` });
+
+      // Genau dieselbe Torkontrolle wie bei einem eingehenden Anruf im
+      // eigenen Netz - der Treffpunkt hat niemanden beglaubigt.
+      await alsAnruf(transport, `treffpunkt ${meet.host}:${meet.port}`);
+      meetLaufend = null;
+      // Egal ob die Uebertragung glueckte oder nicht: sofort wieder
+      // anmelden, damit der Knoten weiter erreichbar bleibt.
+    }
+  }
+
+  const meetPromise = meet ? meetSchleife() : null;
+
   /* ------------------------- Hinausgehendes ------------------------- */
 
   /**
    * Schickt Pfade an eine Gegenstelle. `ziel` ist entweder ein Eintrag
-   * aus der Geraetesuche oder { host, port, pub }.
+   * aus der Geraetesuche oder { host, port, pub }. Traegt `ziel` statt
+   * dessen ein `meet: { host, port, pass }`, wird ueber den Treffpunkt
+   * verbunden - dann muss `ziel` stattdessen eine Anschrift hergeben.
    */
   async function sendTo(ziel, paths, { onProgress = () => {} } = {}) {
-    if (!ziel || !ziel.host) throw new Error('Keine erreichbare Gegenstelle angegeben');
+    if (!ziel || (!ziel.host && !ziel.meet)) throw new Error('Keine erreichbare Gegenstelle angegeben');
 
     const identityMod = require('../core/identity');
     const address = ziel.address || (ziel.pub && identityMod.addressOf(ziel.pub));
+
+    if (ziel.meet && !address) {
+      throw new Error('Für den Weg über den Treffpunkt wird eine Anschrift der Gegenstelle gebraucht');
+    }
 
     // Eine schon gekoppelte Gegenstelle wird auf ihren Schluessel
     // festgenagelt. Ein Fremder im Netz kann sich dann nicht
@@ -133,7 +216,9 @@ async function open({
     const files = chunks.scan(paths);
     if (!files.length) throw new Error('Nichts zu senden');
 
-    const transport = await tcp.connect(ziel.host, ziel.port);
+    const transport = ziel.meet
+      ? await meetClient.reach(ziel.meet.host, ziel.meet.port, { address, pass: ziel.meet.pass })
+      : await tcp.connect(ziel.host, ziel.port);
     try {
       const res = await session.send(transport, {
         identity: me,
@@ -181,6 +266,18 @@ async function open({
 
     async close() {
       if (beacon) beacon.stop();
+
+      if (meetAbbruch) {
+        meetSchliessend = true;
+        meetAbbruch.abort();
+        // Eine offene Anmeldung (angemeldet oder mitten in einer
+        // Uebertragung) wird zwangsweise beendet - genau wie eine
+        // eingehende Verbindung im eigenen Netz, die server.close()
+        // auch nicht abwartet.
+        if (meetLaufend) meetLaufend.close();
+        await meetPromise;
+      }
+
       await server.close();
     }
   };

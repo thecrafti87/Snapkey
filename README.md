@@ -214,3 +214,86 @@ hundert Zeilen für ein Drahtformat, das hier niemand braucht. Der Preis:
 fremde Programme sehen die Geräte nicht, und `kaiman` sieht umgekehrt auch
 keine Geräte, die nur mDNS sprechen. Wer wirklich in die Netzwerk-Norm
 integrieren will, tauscht dafür genau diese eine Datei.
+
+# Stufe 3 — der Treffpunkt
+
+Der Rundruf aus Stufe 1 funktioniert nur, solange beide Geräte im selben Netz
+sitzen. Stehen sie hinter zwei verschiedenen Routern — das eine zu Hause, das
+andere unterwegs —, findet keins das andere von allein. Dafür gibt es jetzt
+den **Treffpunkt**: einen kleinen Vermittlungsdienst, den man selbst irgendwo
+laufen lässt (ein NAS, ein kleiner Server, egal was dauerhaft erreichbar ist),
+über den sich zwei Geräte unter einer Anschrift finden und die Leitung
+zusammenschalten lassen.
+
+```bash
+kaiman treffpunkt --port 41997 --pass geheimnis
+```
+
+Auf dem empfangenden Gerät meldet sich `kaiman listen` zusätzlich dort an:
+
+```bash
+kaiman listen --out ~/Empfangen --neue-annehmen \
+  --treffpunkt dxp8800plus-1 --treffpunkt-pass geheimnis
+```
+
+Und beim Senden reicht dieselbe Anschrift, dieselben zwei Flaggen:
+
+```bash
+kaiman send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub \
+  --treffpunkt dxp8800plus-1 --treffpunkt-pass geheimnis
+```
+
+`send` sucht dabei **immer zuerst im eigenen Netz** — genau wie bisher — und
+geht nur über den Treffpunkt, wenn dort in dieser Zeit niemand gefunden wurde.
+Die Ausgabe sagt, welcher der beiden Wege es war:
+
+```
+Suche "wal-tanne-nordwind-flotte-kiel-schilf" im eigenen Netz (bis 6 s) ...
+Im eigenen Netz nicht gefunden - versuche es über den Treffpunkt dxp8800plus-1:41997 ...
+  100% - 38.2 MB (Block 39/39)
+Geschickt: 39 Block(e), vollständig.
+```
+
+## Was der Treffpunkt sieht — und was nicht
+
+**Er beglaubigt niemanden.** Wer sich dort unter einer fremden Anschrift
+anmeldet, erreicht damit höchstens, dass die echte Gegenstelle gerade nicht
+erreichbar ist — Daten bekommt er trotzdem nicht: der Handschlag der Sitzung
+darüber (`handshake.js`) weist ihn ab, weil der dabei bewiesene Schlüssel
+nicht zu dem passt, den die Gegenseite erwartet. Das **Passwort** (`--pass`
+beim Treffpunkt, `--treffpunkt-pass` bei `listen`/`send`) ist der Schutz
+gegen genau diese Belegung einer Anschrift — nicht gegen Mitlesen. Ohne
+Passwort kann sich jeder, der den Treffpunkt erreicht, unter jeder Anschrift
+anmelden oder nach jeder suchen.
+
+**Er sieht den Inhalt nicht.** Sobald zwei Seiten zusammengeschaltet sind,
+deutet der Treffpunkt kein einziges Byte mehr — er reicht nur noch roh durch,
+was ohnehin schon Ende-zu-Ende verschlüsselt ist (derselbe Handschlag wie im
+eigenen Netz, siehe „Zur Verschlüsselung" oben). Er **sieht aber sehr wohl**,
+wer wann mit wem verbunden wird, und **die Daten laufen tatsächlich durch
+seine Leitung** — das kostet seine Bandbreite, ganz gleich wie groß die Datei
+ist. Ein Treffpunkt auf einem lahmen Anschluss bremst jede Übertragung über
+ihn aus, auch wenn beide Enden selbst schnell wären.
+
+**Deshalb**: Ist eine Gegenstelle ohnehin erreichbar — über ein VPN wie
+Tailscale, eine Portfreigabe, dasselbe Rechenzentrum —, ist `--an
+<host[:port]>` der bessere Weg. Er verbindet direkt, ohne Suche und ohne
+Treffpunkt, ohne dessen Bandbreite zu belasten:
+
+```bash
+kaiman send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub --an 100.x.y.z
+```
+
+Der Treffpunkt lohnt sich für den Fall, den nichts davon abdeckt: zwei Geräte,
+die sich sonst schlicht nicht erreichen.
+
+## Wie eine Vermittlung abläuft
+
+Wer erreichbar sein will, meldet sich mit `here` unter seiner Anschrift an und
+wartet. Wer jemanden sucht, schickt `reach` mit derselben Anschrift. Sind
+beide da, schickt der Treffpunkt an beide `joined` und schaltet die
+Leitungen zusammen — die Anmeldung ist damit verbraucht. Danach meldet sich
+der wartende Knoten sofort wieder an, bleibt also nach jeder Übertragung
+weiter erreichbar. Eine zweite Anmeldung unter derselben Anschrift verdrängt
+eine ältere; wer binnen 30 Sekunden weder `here` noch `reach` sagt, wird
+getrennt.
