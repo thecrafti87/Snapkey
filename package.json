@@ -12,7 +12,7 @@
     "test": "node --test \"test/**/*.test.js\"",
     "app": "electron app/main.js",
     "pack": "electron-builder --dir",
-    "dist": "electron-builder --mac"
+    "dist": "electron-builder --mac --arm64 --x64"
   },
   "devDependencies": {
     "electron": "^43.4.1",
