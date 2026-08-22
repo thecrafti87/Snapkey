@@ -402,7 +402,7 @@ ipcMain.handle('node:settings', () => ({
   userData: app.getPath('userData'),
   // Zusaetzlich zum vorgeschriebenen Vertrag, fuer die Fassung und den
   // Hinweis am Ende der Einstellungen ("wo die Schluessel liegen").
-  version: app.getVersion(),
+  version: require('../package.json').version,
   keysDir: storeMod.homeDir()
 }));
 

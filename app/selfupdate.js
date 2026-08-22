@@ -217,7 +217,12 @@ async function check(repo) {
   if (!release || !release.tag_name) return { ok: false, reason: 'keine-veroeffentlichung' };
 
   const latest = normalizeVersion(release.tag_name);
-  const current = (app && typeof app.getVersion === 'function') ? app.getVersion() : require('../package.json').version;
+  // Bewusst aus package.json und nicht ueber app.getVersion(): laeuft das
+  // Programm aus dem Quelltext statt als Paket, liefert Electron dort
+  // SEINE eigene Fassung. Dann stuende in der Oberflaeche "43.4.1" als
+  // waere das SNAPKEY - und der Vergleich mit der Veroeffentlichung
+  // ergaebe Unsinn. Im Paket ist beides ohnehin derselbe Wert.
+  const current = require('../package.json').version;
   return { ok: true, current, latest, newer: isNewer(latest, current), url: release.html_url || '' };
 }
 
