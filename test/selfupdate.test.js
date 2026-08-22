@@ -117,10 +117,14 @@ test('isConfiguredRepo lehnt leer, Unfug und bekannte Platzhalter ab', () => {
   assert.equal(isConfiguredRepo('eigner/name'), false);
 });
 
-test('configuredRepo liest package.json - dort steht derzeit bewusst nichts', () => {
-  // package.json traegt build.publish.owner/repo noch leer ein - wohin
-  // veroeffentlicht wird, ist laut Auftrag noch nicht entschieden.
-  assert.equal(configuredRepo(), '');
+test('configuredRepo liest den Ort aus package.json', () => {
+  // Frueher stand hier, das Feld sei leer - und die Pruefung fiel um, als
+  // der Ort eingetragen wurde. Sie haengt jetzt an der Form, nicht am
+  // Inhalt: entweder es steht nichts da, oder etwas Brauchbares.
+  const ort = configuredRepo();
+  if (ort === '') return;
+  assert.match(ort, /^[\w.-]+\/[\w.-]+$/, `unbrauchbarer Eintrag: ${ort}`);
+  assert.equal(isConfiguredRepo(ort), true, 'der eingetragene Ort gilt als Platzhalter');
 });
 
 test('check() mit leerem Repo scheitert sofort, ohne Netzanfrage', async () => {

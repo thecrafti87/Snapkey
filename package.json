@@ -44,8 +44,8 @@
     },
     "publish": {
       "provider": "github",
-      "owner": "",
-      "repo": "",
+      "owner": "thecrafti87",
+      "repo": "Snapkey",
       "releaseType": "release"
     }
   }
