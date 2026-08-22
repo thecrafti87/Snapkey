@@ -23,7 +23,8 @@ Keine Fremdpakete. Alles, was der Kern braucht, ist in Node eingebaut.
 | `src/core/frame.js` | Längenvoranstellung, Steuerung als JSON, Blöcke roh |
 | `src/core/chunks.js` | Einsammeln, Blockprüfsummen, **was fehlt noch**, Hineinlegen |
 | `src/core/handshake.js` | Aus zwei Schlüsselpaaren wird ein Sitzungsschlüssel |
-| `src/core/session.js` | Der Ablauf, über einem beliebigen Transport |
+| `src/core/session.js` | Handschlag (`connect`) und Dateiübertragung (`send`/`receive`), über einem beliebigen Transport |
+| `src/core/talk.js` | Kurznachrichten über denselben Handschlag (`say`/`listen`) — siehe „Kurznachrichten" weiter unten |
 | `src/transport/memory.js` | Zwei Endpunkte im Speicher — nur zum Prüfen |
 
 ## Wie das Fortsetzen funktioniert
@@ -358,3 +359,70 @@ Weg: über die Umleitung
 `kaiman id --portfreigabe` probiert dasselbe einmalig, nur um die öffentliche
 Adresse anzuzeigen — ohne einen Zuhörer offen zu halten, die Freigabe wird
 danach gleich zurückgegeben.
+
+# Kurznachrichten
+
+Kein zweites Programm, kein zweites Netz: Nachrichten gehen über genau
+denselben Weg wie Dateien — eigenes Netz zuerst, sonst über den Treffpunkt —,
+mit demselben Handschlag, derselben Verschlüsselung und demselben
+Festnageln auf den bekannten Schlüssel (`src/core/talk.js`).
+
+```bash
+kaiman say wal-tanne-nordwind-flotte-kiel-schilf Bin gleich da
+kaiman chat                                       # wer hat geschrieben, wann zuletzt
+kaiman chat wal-tanne-nordwind-flotte-kiel-schilf # der Verlauf mit einer Gegenstelle
+```
+
+**`kaiman say <ziel> <text...>`** — schickt eine Nachricht, mit denselben
+Flaggen wie `send` (`--treffpunkt`, `--treffpunkt-pass`, `--an`). Die Ausgabe
+zeigt den genommenen Weg und ob die Nachricht angekommen ist — "angekommen"
+heißt hier: die Gegenstelle hat sie abgelegt und das ausdrücklich bestätigt,
+nicht nur, dass sie über die Leitung ging.
+
+```bash
+$ kaiman say Werkstatt Bin gleich da
+Suche "Werkstatt" (bis 6 s) ...
+Gefunden: Werkstatt (10.0.0.12:41999)
+Weg: im eigenen Netz
+Angekommen (im eigenen Netz).
+```
+
+**`kaiman chat [<ziel>]`** — ohne Ziel eine Liste der Gegenstellen, mit denen
+es einen Verlauf gibt, samt Anzahl und Zeitpunkt der letzten Nachricht; mit
+Ziel der Verlauf selbst, älteste Nachricht oben. Beides liest nur die eigene
+Ablage (`messages.json`, neben `identity.json` und `peers.json`, Rechte
+`0600`) — dafür muss kein Knoten laufen.
+
+```bash
+$ kaiman chat
+Anschrift                              Name        Nachrichten   Zuletzt
+-------------------------------------   ---------   -----------   ------------------
+quark-ferse-topf-platte-zitrone-nebel   Werkstatt   3             21.08.26, 14:03:12
+
+$ kaiman chat quark-ferse-topf-platte-zitrone-nebel
+21.08.26, 14:01:03  ->  Bin gleich da
+21.08.26, 14:02:47  <-  Bis gleich!
+```
+
+## Wer redet, wer schickt Dateien
+
+Kein neues Vorwort im Protokoll unterscheidet das eine vom anderen — die
+erste Steuernachricht nach dem Handschlag entscheidet: `manifest` bedeutet
+Dateiübertragung, `say` bedeutet eine Nachrichtensitzung. `kaiman listen`
+behandelt beides über dieselbe Torkontrolle (unbekannte Gegenstelle
+abgewiesen, sofern nicht `--neue-annehmen` läuft) und zeigt eingehende
+Nachrichten deutlich abgesetzt von den Übertragungsmeldungen an:
+
+```
+Bekannte Gegenstelle: quark-ferse-topf-platte-zitrone-nebel (10.0.0.7:52344)
+
+Nachricht von quark-ferse-topf-platte-zitrone-nebel (10.0.0.7:52344):
+  Bin gleich da
+
+Nachrichtensitzung mit quark-ferse-topf-platte-zitrone-nebel (10.0.0.7:52344) beendet: 1 Nachricht(en).
+```
+
+Eine Nachricht ist höchstens 8000 Zeichen lang, eine Sitzung trägt höchstens
+100 davon — darüber hinaus wird klar abgelehnt, nicht stillschweigend
+gekürzt. Je Gegenstelle werden höchstens 500 Nachrichten aufgehoben, ältere
+fallen hinten heraus.

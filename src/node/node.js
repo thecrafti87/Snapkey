@@ -15,11 +15,14 @@ const os = require('os');
 
 const session = require('../core/session');
 const chunks = require('../core/chunks');
+const frame = require('../core/frame');
+const talk = require('../core/talk');
 const tcp = require('../net/tcp');
 const meetClient = require('../net/meet');
 const discovery = require('../net/discovery');
 const portmap = require('../net/portmap');
 const store = require('./store');
+const messagesMod = require('./messages');
 
 // Wie lange nach einem gescheiterten Anlauf am Treffpunkt gewartet wird,
 // bevor der Knoten es erneut versucht - wachsend, aber gedeckelt: ein
@@ -82,6 +85,7 @@ async function open({
 } = {}) {
   const box = store.open(home);
   const me = box.me;
+  const inbox = messagesMod.open(box.dir);
 
   /* ------------------------ Hereinkommendes ------------------------ */
 
@@ -118,30 +122,91 @@ async function open({
   }
 
   /**
+   * Wartet auf die naechste Nachricht nach dem Handschlag - vielleicht
+   * liegt sie schon in der Warteschlange des Kanals (im selben Paket
+   * wie das letzte Handschlagpaket), sonst wird auf sie gewartet.
+   * Dasselbe Muster wie in session.receive(), hier gebraucht, weil erst
+   * diese eine Nachricht zeigt, ob eine Datei- oder eine
+   * Nachrichtensitzung folgt (siehe alsAnruf).
+   */
+  function naechsteNachricht(handshake) {
+    return new Promise((resolve, reject) => {
+      const schonDa = handshake.next();
+      if (schonDa) { resolve(schonDa); return; }
+
+      // Die Zustaendigkeit fuer neue Bytes geht ab hier auf uns ueber
+      // (siehe Channel.setOwner in session.js) - der Transport selbst
+      // wird kein zweites Mal angefasst (ein echter Socket haengt
+      // Zuhoerer nur an, ersetzt sie nicht).
+      handshake.channel.setOwner({
+        onData: () => {
+          const packet = handshake.next();
+          if (!packet) return;
+          // Bis der naechste Besitzer (session.receiveOn oder
+          // talk.listen) sich nach dem "await" gleich meldet, wird nur
+          // noch stumm weitergepuffert - dasselbe Muster wie in
+          // session.connect().
+          handshake.channel.setOwner({ onData: () => {}, onError: () => {}, onClose: () => {} });
+          resolve(packet);
+        },
+        onError: reject,
+        onClose: () => reject(new Error('Die Verbindung wurde getrennt'))
+      });
+    });
+  }
+
+  /**
    * Ein eingehender Anruf, gleich woher: aus dem eigenen Zuhoerer oder
    * aus einer Vermittlung ueber den Treffpunkt. Dieselbe Torkontrolle
    * gilt in beiden Faellen - der Treffpunkt beglaubigt niemanden, das
    * bleibt allein Sache des Handschlags.
+   *
+   * Nach dem Handschlag entscheidet die erste Nachricht, was folgt:
+   * 'manifest' eine Dateiuebertragung, 'say' eine Nachrichtensitzung.
+   * Kein eigenes Vorwort im Protokoll - genau diese eine Nachricht ist
+   * die Weiche.
    */
   async function alsAnruf(transport, von) {
     onEvent({ type: 'incoming', from: von });
 
+    let address = null;
+
     try {
-      const res = await session.receive(transport, {
+      const handshake = await session.connect(transport, {
         identity: me,
         expect: null,          // wer es ist, entscheidet die Torkontrolle
-        dir: outDir,
-        dedup,
+        initiator: false,
         onEvent: (e) => {
           if (e.type === 'secure') {
             const wer = pruefen(e.peer.pub);
+            address = wer.address;
             onEvent({ type: 'accepted', ...wer, from: von });
             return;
           }
           onEvent({ ...e, from: von });
         }
       });
-      onEvent({ type: 'received', from: von, result: res, outDir });
+
+      const erste = await naechsteNachricht(handshake);
+      const ersteMsg = erste.type === frame.CONTROL ? frame.readControl(erste.body) : null;
+
+      if (ersteMsg && ersteMsg.t === 'say') {
+        const res = await talk.listen(handshake.channel, handshake.peer, {
+          onMessage: ({ text, at }) => {
+            inbox.add(address, { dir: 'in', text, at });
+            onEvent({ type: 'message', from: von, address, text, at });
+          },
+          onEvent: (e) => onEvent({ ...e, from: von })
+        }, erste);
+        onEvent({ type: 'talked', address, count: res.received, from: von });
+      } else {
+        const res = await session.receiveOn(handshake, {
+          dir: outDir,
+          dedup,
+          onEvent: (e) => onEvent({ ...e, from: von })
+        }, erste);
+        onEvent({ type: 'received', from: von, result: res, outDir });
+      }
     } catch (err) {
       onEvent({ type: 'refused', from: von, message: err.message, code: err.code });
     } finally {
@@ -247,12 +312,48 @@ async function open({
   /* ------------------------- Hinausgehendes ------------------------- */
 
   /**
-   * Schickt Pfade an eine Gegenstelle. `ziel` ist entweder ein Eintrag
-   * aus der Geraetesuche oder { host, port, pub }. Traegt `ziel` statt
-   * dessen ein `meet: { host, port, pass }`, wird ueber den Treffpunkt
-   * verbunden - dann muss `ziel` stattdessen eine Anschrift hergeben.
+   * Baut die Verbindung zu einer Zielangabe auf - dieselbe Wegewahl fuer
+   * Dateien wie fuer Nachrichten: eigenes Netz direkt, sonst ueber den
+   * Treffpunkt vermittelt (moeglichst direkt, sonst als Umleitung).
+   *
+   * route: 'lan' (kein Treffpunkt - eigenes Netz oder --an), 'direct'
+   * (ueber den Treffpunkt vermittelt, dann aber selbst direkt
+   * verbunden) oder 'relay' (tatsaechlich ueber die Umleitung).
    */
-  async function sendTo(ziel, paths, { onProgress = () => {} } = {}) {
+  async function verbinde(ziel, address) {
+    if (!ziel.meet) {
+      return { transport: await tcp.connect(ziel.host, ziel.port), route: 'lan' };
+    }
+
+    const auskunft = await meetClient.lookup(ziel.meet.host, ziel.meet.port, { address, pass: ziel.meet.pass });
+
+    let transport = null;
+    const direktZiel = parseHostPort(auskunft.direct);
+    if (direktZiel) {
+      try {
+        transport = await tcp.connect(direktZiel.host, direktZiel.port, { timeout: 4000 });
+      } catch {
+        // Der direkte Weg hat nicht geklappt - es bleibt bei der
+        // Umleitung ueber den Treffpunkt, kein Grund zum Abbrechen.
+        transport = null;
+      }
+    }
+
+    if (transport) {
+      auskunft.cancel();
+      return { transport, route: 'direct' };
+    }
+    return { transport: await auskunft.join(), route: 'relay' };
+  }
+
+  /**
+   * `ziel` ist entweder ein Eintrag aus der Geraetesuche oder
+   * { host, port, pub }. Traegt `ziel` statt dessen ein
+   * `meet: { host, port, pass }`, wird ueber den Treffpunkt verbunden -
+   * dann muss `ziel` stattdessen eine Anschrift hergeben. Wirft, wenn
+   * `address` gesetzt ist und `ziel` weder `host` noch `meet` hat.
+   */
+  function zielPruefen(ziel) {
     if (!ziel || (!ziel.host && !ziel.meet)) throw new Error('Keine erreichbare Gegenstelle angegeben');
 
     const identityMod = require('../core/identity');
@@ -266,43 +367,36 @@ async function open({
     // festgenagelt. Ein Fremder im Netz kann sich dann nicht
     // dazwischenschieben, indem er dieselbe Anschrift ruft.
     const bekannt = address ? box.peers.get(address) : null;
-    const erwartet = bekannt ? bekannt.pub : null;
+    return { identityMod, address, erwartet: bekannt ? bekannt.pub : null };
+  }
+
+  /**
+   * Prueft, ob der im Handschlag bewiesene Schluessel zu der
+   * angesteuerten Anschrift passt - die Geraetesuche ist ein Rundruf,
+   * dort kann jeder behaupten, was er will. Gemerkt wird immer der
+   * bewiesene Schluessel, nicht der behauptete.
+   */
+  function schluesselPruefen(identityMod, address, ziel, e) {
+    const echt = identityMod.addressOf(e.peer.pub);
+    if (address && echt !== address) {
+      const err = new Error(
+        `Angesteuert war ${address}, geantwortet hat ${echt} - die Geräteschau war irreführend`
+      );
+      err.code = 'PEER_CHANGED';
+      throw err;
+    }
+    box.peers.remember(echt, e.peer.pub, ziel.name || null);
+    return echt;
+  }
+
+  /** Schickt Pfade an eine Gegenstelle. */
+  async function sendTo(ziel, paths, { onProgress = () => {} } = {}) {
+    const { identityMod, address, erwartet } = zielPruefen(ziel);
 
     const files = chunks.scan(paths);
     if (!files.length) throw new Error('Nichts zu senden');
 
-    // route: 'lan' (kein Treffpunkt - eigenes Netz oder --an), 'direct'
-    // (ueber den Treffpunkt vermittelt, dann aber selbst direkt
-    // verbunden) oder 'relay' (tatsaechlich ueber die Umleitung).
-    let transport;
-    let route;
-
-    if (ziel.meet) {
-      const auskunft = await meetClient.lookup(ziel.meet.host, ziel.meet.port, { address, pass: ziel.meet.pass });
-
-      const direktZiel = parseHostPort(auskunft.direct);
-      if (direktZiel) {
-        try {
-          transport = await tcp.connect(direktZiel.host, direktZiel.port, { timeout: 4000 });
-        } catch {
-          // Der direkte Weg hat nicht geklappt - es bleibt bei der
-          // Umleitung ueber den Treffpunkt, kein Grund zum Abbrechen.
-          transport = null;
-        }
-      }
-
-      if (transport) {
-        auskunft.cancel();
-        route = 'direct';
-      } else {
-        transport = await auskunft.join();
-        route = 'relay';
-      }
-    } else {
-      transport = await tcp.connect(ziel.host, ziel.port);
-      route = 'lan';
-    }
-
+    const { transport, route } = await verbinde(ziel, address);
     onProgress({ type: 'route', route });
 
     try {
@@ -311,29 +405,43 @@ async function open({
         expect: erwartet,
         files,
         onEvent: (e) => {
-          if (e.type === 'secure') {
-            // Gemerkt wird der Schluessel, der im Handschlag bewiesen
-            // wurde - nicht der, den die Geraetesuche behauptet hat.
-            const echt = identityMod.addressOf(e.peer.pub);
-
-            // Die Geraetesuche ist ein Rundruf; dort kann jeder
-            // behaupten, was er will. Wenn die Anschrift, die wir
-            // angesteuert haben, nicht zu dem Schluessel passt, der
-            // antwortet, ist das keine Kleinigkeit.
-            if (address && echt !== address) {
-              const err = new Error(
-                `Angesteuert war ${address}, geantwortet hat ${echt} - die Geräteschau war irreführend`
-              );
-              err.code = 'PEER_CHANGED';
-              throw err;
-            }
-
-            box.peers.remember(echt, e.peer.pub, ziel.name || null);
-          }
+          if (e.type === 'secure') schluesselPruefen(identityMod, address, ziel, e);
           onProgress(e);
         }
       });
       return { ...res, route, files: files.length, bytes: files.reduce((n, f) => n + f.size, 0) };
+    } finally {
+      transport.close();
+    }
+  }
+
+  /**
+   * Schickt Kurznachrichten an eine Gegenstelle - dieselbe Wegewahl und
+   * dasselbe Festnageln auf den bekannten Schluessel wie sendTo, nur
+   * mit dem Nachrichtenprotokoll (talk.js) statt der Dateiuebertragung.
+   * Abgeschickte Nachrichten werden ebenfalls abgelegt, mit demselben
+   * Zeitstempel, der auch an die Gegenstelle ging.
+   */
+  async function say(ziel, texte, { onProgress = () => {} } = {}) {
+    const { identityMod, address, erwartet } = zielPruefen(ziel);
+
+    const { transport, route } = await verbinde(ziel, address);
+    onProgress({ type: 'route', route });
+
+    let peerAdresse = address;
+
+    try {
+      const res = await talk.say(transport, {
+        identity: me,
+        expect: erwartet,
+        texts: texte,
+        onEvent: (e) => {
+          if (e.type === 'secure') peerAdresse = schluesselPruefen(identityMod, address, ziel, e);
+          if (e.type === 'delivered') inbox.add(peerAdresse, { dir: 'out', text: e.text, at: e.at });
+          onProgress(e);
+        }
+      });
+      return { delivered: res.delivered, route, peer: res.peer };
     } finally {
       transport.close();
     }
@@ -344,12 +452,14 @@ async function open({
     port: server.port,
     outDir,
     store: box,
+    messages: inbox,
 
     get external() { return external; },
     get peers() { return beacon ? beacon.peers : []; },
     find: (hint) => (beacon ? beacon.find(hint) : null),
 
     sendTo,
+    say,
 
     async close() {
       if (beacon) beacon.stop();

@@ -21,6 +21,7 @@ const os = require('os');
 const identity = require('../src/core/identity');
 const chunks = require('../src/core/chunks');
 const store = require('../src/node/store');
+const messagesMod = require('../src/node/messages');
 const discovery = require('../src/net/discovery');
 const nodeMod = require('../src/node/node');
 const tcp = require('../src/net/tcp');
@@ -60,6 +61,64 @@ function tabelle(zeilen, spalten) {
   zeileDrucken(spalten.map(([, titel]) => titel));
   zeileDrucken(breiten.map((b) => '-'.repeat(b)));
   for (const z of zeilen) zeileDrucken(spalten.map(([schluessel]) => z[schluessel]));
+}
+
+/** Ein ISO-Zeitstempel, lesbar fuer einen Menschen - faellt notfalls auf den Rohwert zurueck. */
+function zeitAnzeige(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'medium' });
+}
+
+const WEG_TEXT = { lan: 'im eigenen Netz', direct: 'direkt über den Treffpunkt vermittelt', relay: 'über die Umleitung' };
+
+/**
+ * Findet die Gegenstelle fuer "send" und "say" - dieselbe Wegewahl bei
+ * beiden: erst --an (direkt, keine Suche), sonst das eigene Netz (bis
+ * zu SUCH_ZEIT_MS), sonst der Treffpunkt, wenn einer angegeben ist.
+ */
+async function zielFinden(n, ziel, { an, treffpunkt, treffpunktPass }) {
+  // "find" vergleicht die Anschrift buchstabengetreu - mit Vorsatz,
+  // Grossschrift oder Leerzeichen abgetippt faende es nichts. Deshalb
+  // hier erst durch parseAddress glaetten, wenn es wie eine Anschrift
+  // aussieht; sieht es aus wie ein Name, bleibt er unangetastet.
+  const alsAnschrift = identity.parseAddress(ziel);
+
+  if (an) {
+    // Der direkte Weg - keine Suche, kein Treffpunkt. Fuer
+    // Gegenstellen, die ohnehin erreichbar sind (VPN, Portfreigabe).
+    console.log(`Verbinde direkt zu ${an.host}:${an.port} ...`);
+    return { host: an.host, port: an.port, address: alsAnschrift || undefined };
+  }
+
+  const suchbegriff = alsAnschrift || ziel;
+
+  console.log(`Suche "${ziel}" im eigenen Netz (bis ${Math.round(SUCH_ZEIT_MS / 1000)} s) ...`);
+  let gefunden = null;
+  const ende = Date.now() + SUCH_ZEIT_MS;
+  while (Date.now() < ende) {
+    gefunden = n.find(suchbegriff);
+    if (gefunden) break;
+    await warten(150);
+  }
+
+  if (gefunden) {
+    console.log(`Im eigenen Netz gefunden: ${gefunden.name || gefunden.address} (${gefunden.host}:${gefunden.port})`);
+    return gefunden;
+  }
+
+  if (treffpunkt) {
+    if (!alsAnschrift) {
+      throw new Error(
+        `"${ziel}" wurde im eigenen Netz nicht gefunden - über den Treffpunkt wird eine `
+        + 'Anschrift gebraucht, ein Gerätename reicht dafür nicht.'
+      );
+    }
+    console.log(`Im eigenen Netz nicht gefunden - versuche es über den Treffpunkt ${treffpunkt.host}:${treffpunkt.port} ...`);
+    return { address: alsAnschrift, meet: { host: treffpunkt.host, port: treffpunkt.port, pass: treffpunktPass } };
+  }
+
+  throw new Error(`"${ziel}" wurde im eigenen Netz nicht gefunden (--treffpunkt fehlt).`);
 }
 
 /* ------------------------------ Argumente ------------------------------ */
@@ -202,6 +261,17 @@ async function befehlListen(flags) {
         break;
       }
 
+      case 'message':
+        // Deutlich abgesetzt von den Uebertragungsmeldungen - eine
+        // Leerzeile davor und danach, statt sich in "taken"/"offered"
+        // zu verlieren.
+        console.log(`\nNachricht von ${e.address} (${e.from}):\n  ${e.text}\n`);
+        break;
+
+      case 'talked':
+        console.log(`Nachrichtensitzung mit ${e.address} (${e.from}) beendet: ${e.count} Nachricht(en).\n`);
+        break;
+
       case 'refused':
         laufend.delete(e.from);
         if (e.code === 'PEER_CHANGED') console.error(`ACHTUNG - abgewiesen (${e.from}): ${e.message}`);
@@ -274,60 +344,15 @@ async function befehlSend(positional, flags) {
   const n = await nodeMod.open({ port: 0, announce: true, trustNew: false, name: flags.name, onEvent: () => {} });
 
   try {
-    // "find" vergleicht die Anschrift buchstabengetreu - mit Vorsatz,
-    // Grossschrift oder Leerzeichen abgetippt faende es nichts. Deshalb
-    // hier erst durch parseAddress glaetten, wenn es wie eine Anschrift
-    // aussieht; sieht es aus wie ein Name, bleibt er unangetastet.
-    const alsAnschrift = identity.parseAddress(ziel);
-
-    let gegenstelle;
-
-    if (an) {
-      // Der direkte Weg - keine Suche, kein Treffpunkt. Fuer
-      // Gegenstellen, die ohnehin erreichbar sind (VPN, Portfreigabe).
-      gegenstelle = { host: an.host, port: an.port, address: alsAnschrift || undefined };
-      console.log(`Verbinde direkt zu ${an.host}:${an.port} ...`);
-    } else {
-      const suchbegriff = alsAnschrift || ziel;
-
-      console.log(`Suche "${ziel}" im eigenen Netz (bis ${Math.round(SUCH_ZEIT_MS / 1000)} s) ...`);
-      let gefunden = null;
-      const ende = Date.now() + SUCH_ZEIT_MS;
-      while (Date.now() < ende) {
-        gefunden = n.find(suchbegriff);
-        if (gefunden) break;
-        await warten(150);
-      }
-
-      if (gefunden) {
-        gegenstelle = gefunden;
-        console.log(`Im eigenen Netz gefunden: ${gefunden.name || gefunden.address} (${gefunden.host}:${gefunden.port})`);
-      } else if (treffpunkt) {
-        if (!alsAnschrift) {
-          throw new Error(
-            `"${ziel}" wurde im eigenen Netz nicht gefunden - über den Treffpunkt wird eine `
-            + 'Anschrift gebraucht, ein Gerätename reicht dafür nicht.'
-          );
-        }
-        console.log(`Im eigenen Netz nicht gefunden - versuche es über den Treffpunkt ${treffpunkt.host}:${treffpunkt.port} ...`);
-        gegenstelle = {
-          address: alsAnschrift,
-          meet: { host: treffpunkt.host, port: treffpunkt.port, pass: treffpunktPass }
-        };
-      } else {
-        throw new Error(`"${ziel}" wurde im eigenen Netz nicht gefunden (--treffpunkt fehlt).`);
-      }
-    }
+    const gegenstelle = await zielFinden(n, ziel, { an, treffpunkt, treffpunktPass });
 
     let plan = null;
     let uebertragen = 0;
     let letzterDruck = 0;
 
-    const wegText = { lan: 'im eigenen Netz', direct: 'direkt über den Treffpunkt vermittelt', relay: 'über die Umleitung' };
-
     const res = await n.sendTo(gegenstelle, pfade, {
       onProgress: (e) => {
-        if (e.type === 'route') console.log(`Weg: ${wegText[e.route] || e.route}`);
+        if (e.type === 'route') console.log(`Weg: ${WEG_TEXT[e.route] || e.route}`);
 
         if (e.type === 'plan') plan = e;
 
@@ -349,6 +374,89 @@ async function befehlSend(positional, flags) {
     if (!res.ok) console.log(`Fehlt noch: ${res.missing.join(', ')}`);
   } finally {
     await n.close();
+  }
+}
+
+/* --------------------------------- say ----------------------------------- */
+
+async function befehlSay(positional, flags) {
+  const [ziel, ...worte] = positional;
+  if (!ziel || !worte.length) throw new Error('Aufruf: kaiman say <ziel> <text...>');
+  const text = worte.join(' ');
+
+  const an = flags.an ? hostPort(flags.an, tcp.DEFAULT_PORT) : null;
+  const treffpunkt = flags.treffpunkt ? hostPort(flags.treffpunkt, meetServerMod.DEFAULT_PORT) : null;
+  const treffpunktPass = flags['treffpunkt-pass'] || '';
+
+  const n = await nodeMod.open({ port: 0, announce: true, trustNew: false, name: flags.name, onEvent: () => {} });
+
+  try {
+    const gegenstelle = await zielFinden(n, ziel, { an, treffpunkt, treffpunktPass });
+
+    const res = await n.say(gegenstelle, [text], {
+      onProgress: (e) => {
+        if (e.type === 'route') console.log(`Weg: ${WEG_TEXT[e.route] || e.route}`);
+      }
+    });
+
+    console.log(res.delivered === 1
+      ? `Angekommen (${WEG_TEXT[res.route] || res.route}).`
+      : `Nicht angekommen (${WEG_TEXT[res.route] || res.route}).`);
+  } finally {
+    await n.close();
+  }
+}
+
+/* -------------------------------- chat ----------------------------------- */
+
+/**
+ * Ohne Ziel: die Gegenstellen, mit denen es einen Verlauf gibt, mit
+ * Anzahl und Zeitpunkt der letzten Nachricht. Mit Ziel: der Verlauf
+ * selbst, aelteste Nachricht oben.
+ */
+async function befehlChat(positional) {
+  const [ziel] = positional;
+  const box = store.open();
+  const inbox = messagesMod.open(box.dir);
+
+  if (!ziel) {
+    const gegenstellen = inbox.peers();
+    if (!gegenstellen.length) {
+      console.log('Noch keine Nachrichten. "kaiman say <ziel> <text...>" schickt die erste.');
+      return;
+    }
+
+    const zeilen = gegenstellen
+      .slice()
+      .sort((a, b) => new Date(b.letzte) - new Date(a.letzte))
+      .map((p) => {
+        const bekannt = box.peers.get(p.address);
+        return {
+          Anschrift: p.address,
+          Name: (bekannt && bekannt.name) || '(unbekannt)',
+          Nachrichten: p.anzahl,
+          Zuletzt: zeitAnzeige(p.letzte)
+        };
+      });
+
+    tabelle(zeilen, [
+      ['Anschrift', 'Anschrift'], ['Name', 'Name'], ['Nachrichten', 'Nachrichten'], ['Zuletzt', 'Zuletzt']
+    ]);
+    return;
+  }
+
+  const alsAnschrift = identity.parseAddress(ziel);
+  if (!alsAnschrift) throw new Error(`"${ziel}" ist keine brauchbare Anschrift.`);
+
+  const verlauf = inbox.forPeer(alsAnschrift);
+  if (!verlauf.length) {
+    console.log(`Noch kein Verlauf mit ${alsAnschrift}.`);
+    return;
+  }
+
+  for (const eintrag of verlauf) {
+    const richtung = eintrag.dir === 'out' ? '->' : '<-';
+    console.log(`${zeitAnzeige(eintrag.at)}  ${richtung}  ${eintrag.text}`);
   }
 }
 
@@ -415,17 +523,21 @@ async function befehlRouter() {
 /* -------------------------------- help ---------------------------------- */
 
 function befehlHelp() {
-  console.log(`Kaiman - Dateien direkt von Gerät zu Gerät
+  console.log(`Kaiman - Dateien und Nachrichten direkt von Gerät zu Gerät
 
   kaiman id [--portfreigabe]                      eigene Anschrift zeigen
   kaiman peers                                    Geräte im Netz suchen (${Math.round(SUCH_ZEIT_MS / 1000)} s)
   kaiman listen [--out ORDNER] [--neue-annehmen] [--port N] [--name NAME]
                 [--ohne-wiedererkennung] [--ohne-rundruf] [--portfreigabe]
                 [--treffpunkt HOST[:PORT]] [--treffpunkt-pass WORT]
-                                                   auf Übertragungen warten
+                                                   auf Übertragungen und Nachrichten warten
   kaiman send <ziel> <pfad...>                    Dateien oder Ordner schicken
                 [--treffpunkt HOST[:PORT]] [--treffpunkt-pass WORT]
                 [--an HOST[:PORT]]
+  kaiman say <ziel> <text...>                     eine Nachricht schicken
+                [--treffpunkt HOST[:PORT]] [--treffpunkt-pass WORT]
+                [--an HOST[:PORT]]
+  kaiman chat [<ziel>]                            Gegenstellen mit Verlauf, oder der Verlauf selbst
   kaiman treffpunkt [--port N] [--pass WORT]      die Vermittlungsstelle betreiben
   kaiman router                                   eigenen Router abklopfen (NAT-PMP/PCP/UPnP)
   kaiman help                                     diese Übersicht
@@ -439,12 +551,23 @@ Beispiele:
   kaiman send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub
   kaiman send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub --treffpunkt dxp8800plus-1
   kaiman send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub --an 100.x.y.z
+  kaiman say wal-tanne-nordwind-flotte-kiel-schilf Bin gleich da
+  kaiman say wal-tanne-nordwind-flotte-kiel-schilf Bin gleich da --treffpunkt dxp8800plus-1
+  kaiman chat
+  kaiman chat wal-tanne-nordwind-flotte-kiel-schilf
   kaiman treffpunkt --port 41997 --pass geheimnis
 
-<ziel> bei "send" ist entweder eine Anschrift oder der Name eines
-Geräts, so wie er bei "kaiman peers" auftaucht. Über den Treffpunkt
-geht es nur mit einer Anschrift, kein Gerätename - der Rundruf reicht
-dort nicht hin.
+<ziel> bei "send" und "say" ist entweder eine Anschrift oder der Name
+eines Geräts, so wie er bei "kaiman peers" auftaucht. Über den
+Treffpunkt geht es nur mit einer Anschrift, kein Gerätename - der
+Rundruf reicht dort nicht hin.
+
+"say" und "chat" nutzen denselben Weg und denselben Handschlag wie
+"send" - nur dass keine Dateien fliessen, sondern Text. Wer bei
+"listen" hereinkommt, wird genauso geprüft (--neue-annehmen), gleich
+ob er Dateien bringt oder nur redet; die erste Nachricht nach dem
+Handschlag entscheidet, was von beidem es ist. "chat" liest nur die
+eigene Ablage - dafür muss kein Knoten laufen.
 
 Mit --portfreigabe versucht "listen" (und auf Wunsch "id"), den Router
 um eine Portfreigabe zu bitten - klappt das, wird der Treffpunkt für
@@ -464,6 +587,8 @@ async function main() {
     case 'peers': return befehlPeers();
     case 'listen': return befehlListen(flags);
     case 'send': return befehlSend(positional, flags);
+    case 'say': return befehlSay(positional, flags);
+    case 'chat': return befehlChat(positional);
     case 'treffpunkt': return befehlTreffpunkt(flags);
     case 'router': return befehlRouter();
     case 'help':

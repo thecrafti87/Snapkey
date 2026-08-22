@@ -16,6 +16,10 @@
 
    Diese Datei kennt keine Steckdose. Was die Bytes traegt - ein Kabel,
    ein Datenkanal im Browser, zwei Puffer im Speicher - steht woanders.
+
+   Der Handschlag selbst steckt in connect(): jeder gesicherte Kanal
+   beginnt dort, gleich ob am Ende Dateien folgen (send/receive) oder
+   nur Nachrichten (siehe talk.js).
    ================================================================= */
 
 const frame = require('./frame');
@@ -38,6 +42,7 @@ class Channel {
     this.keys = null;
     this.sendCounter = 0;
     this.recvCounter = 0;
+    this.owner = null;
   }
 
   secure(sendKey, recvKey) {
@@ -79,6 +84,46 @@ class Channel {
     }
     return frame.split(plain);
   }
+
+  /**
+   * Wer gerade fuer neu eintreffende Bytes zustaendig ist - wechselt im
+   * Lauf einer Sitzung mehrfach (Handschlag -> Weiche -> Dateien oder
+   * Nachrichten). `owner` bekommt drei Rueckrufe: onData() (neue Pakete
+   * liegen bereit, koennen ueber next() geholt werden), onError(err)
+   * und onClose().
+   *
+   * Der Transport selbst wird davon NICHT beruehrt - siehe
+   * listenOnTransport().
+   */
+  setOwner(owner) {
+    this.owner = owner;
+  }
+
+  /**
+   * Haengt sich EIN EINZIGES Mal an den Transport - der einzige Ort im
+   * ganzen Ablauf, der das tut.
+   *
+   * Ein echter Socket (net/tcp.js) haengt Zuhoerer nur AN, ersetzt sie
+   * nicht - anders als der Speichertransport zum Pruefen, der die
+   * Zustaendigkeit ueberschreibt. Ein zweites transport.onData() waere
+   * also auf einer echten Leitung kein Ersatz, sondern ein zweiter
+   * Zuhoerer, und jedes Byte wuerde doppelt verarbeitet. Deshalb wird
+   * hier ein fuer alle Mal zugehoert, und alles Spaetere laeuft ueber
+   * setOwner() um.
+   */
+  listenOnTransport() {
+    this.transport.onData((bytes) => {
+      try {
+        this.push(bytes);
+        if (this.owner) this.owner.onData();
+      } catch (err) {
+        if (this.owner) this.owner.onError(err);
+      }
+    });
+    this.transport.onClose(() => {
+      if (this.owner) this.owner.onClose();
+    });
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -105,6 +150,91 @@ function base(transport, { identity, expect, initiator, onEvent = () => {} }) {
 }
 
 /* ------------------------------------------------------------------ *
+ * Handschlag
+ * ------------------------------------------------------------------ */
+
+/**
+ * Handschlag ueber einem Transport. Gibt den gesicherten Kanal zurueck,
+ * sobald beide Seiten sich ausgewiesen haben.
+ *
+ * DIE FALLE: zwischen der letzten Handschlagnachricht und den ersten
+ * Nutzdaten liegt kein Luftholen - ein echter Transport buendelt, also
+ * koennen beide im selben Paket ankommen. Deshalb wird hier, sobald der
+ * Handschlag steht, sofort aufgehoert zu lesen: was sonst noch in
+ * derselben Zustellung mitkam, liegt bereits (roh, noch nicht
+ * entschluesselt) in der Warteschlange des Kanals - siehe
+ * Channel.next() - und wartet dort auf den naechsten Besitzer. Nichts
+ * geht verloren, nichts wird hier schon gedeutet.
+ */
+function connect(transport, { identity, expect = null, initiator, onEvent = () => {} }) {
+  const ctx = base(transport, { identity, expect, initiator, onEvent });
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      // Ein Fehler kann auch NACH dem Handschlag entstehen, obwohl
+      // dieser Aufruf hier noch laeuft - zum Beispiel, wenn die
+      // Torkontrolle der Oberflaeche (onEvent('secure', ...)) eine
+      // unbekannte oder geaenderte Gegenstelle abweist. Der Kanal
+      // steht dann schon: ohne diese Nachricht saehe die Gegenstelle
+      // nur einen Abriss und muesste raten, woran es lag.
+      if (ctx.channel.keys) {
+        try { ctx.sendControl({ t: 'error', message: err.message, code: err.code || null }); } catch { /* egal */ }
+      }
+      try { transport.close(); } catch { /* egal */ }
+      reject(err);
+    };
+
+    ctx.channel.setOwner({
+      onData: () => {
+        // Solange der Handschlag laeuft, wird hier gelesen. Ist er
+        // fertig, gehoert die Warteschlange - und alles, was noch im
+        // selben Paket mitkam - dem naechsten Besitzer; diese Schleife
+        // ruehrt dann nichts mehr an (state.phase ist nicht mehr
+        // 'handshake').
+        while (ctx.state.phase === 'handshake') {
+          const packet = ctx.channel.next();
+          if (!packet) return;
+          if (packet.type !== frame.CONTROL) return fail(new Error('Unlesbare Steuernachricht'));
+
+          const msg = frame.readControl(packet.body);
+          if (!msg) return fail(new Error('Unlesbare Steuernachricht'));
+
+          const antwort = ctx.shake.read(msg);
+          if (antwort) ctx.sendControl(antwort);
+          if (!ctx.shake.done) continue;
+
+          ctx.finishHandshake();
+          ctx.state.phase = 'connected';
+          settled = true;
+
+          // Bis der naechste Besitzer sich gleich danach ueber
+          // channel.setOwner() meldet, wird nur noch stumm
+          // weitergepuffert - nichts wird hier schon gedeutet.
+          ctx.channel.setOwner({ onData: () => {}, onError: () => {}, onClose: () => {} });
+
+          resolve({
+            channel: ctx.channel,
+            peer: ctx.state.peer,
+            sendControl: ctx.sendControl,
+            next: () => ctx.channel.next()
+          });
+          return;
+        }
+      },
+      onError: fail,
+      onClose: () => fail(new Error('Die Verbindung wurde getrennt'))
+    });
+
+    ctx.channel.listenOnTransport();
+
+    if (initiator) ctx.sendControl(ctx.shake.hello());
+  });
+}
+
+/* ------------------------------------------------------------------ *
  * Senden
  * ------------------------------------------------------------------ */
 
@@ -114,7 +244,6 @@ function base(transport, { identity, expect, initiator, onEvent = () => {} }) {
  * nicht noch einmal alles durchgerechnet werden.
  */
 function send(transport, { identity, expect = null, files, manifest = null, onEvent = () => {} }) {
-  const ctx = base(transport, { identity, expect, initiator: true, onEvent });
   let sheet = manifest;
   let sent = 0;
 
@@ -129,6 +258,10 @@ function send(transport, { identity, expect = null, files, manifest = null, onEv
       reject(err);
     };
     const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
+
+    let channel = null;
+    let sendControl = null;
+    let peer = null;
 
     /**
      * Die Bloecke rausgeben, ohne dabei den Speicher vollzulaufen.
@@ -160,7 +293,7 @@ function send(transport, { identity, expect = null, files, manifest = null, onEv
           }
 
           const data = chunks.readChunk(fd, file.size, chunkIndex);
-          ctx.channel.send(frame.chunk(fileIndex, chunkIndex, data));
+          channel.send(frame.chunk(fileIndex, chunkIndex, data));
           sent++;
           onEvent({ type: 'sent', done: sent, of: want.length, bytes: data.length });
 
@@ -171,27 +304,10 @@ function send(transport, { identity, expect = null, files, manifest = null, onEv
         if (fd !== null) fs.closeSync(fd);
       }
 
-      ctx.sendControl({ t: 'end' });
+      sendControl({ t: 'end' });
     }
 
     const handle = (msg) => {
-      if (ctx.state.phase === 'handshake') {
-        const next = ctx.shake.read(msg);
-        if (next) ctx.sendControl(next);
-        if (!ctx.shake.done) return;
-
-        ctx.finishHandshake();
-        ctx.state.phase = 'manifest';
-
-        if (!sheet) {
-          onEvent({ type: 'hashing' });
-          sheet = chunks.buildManifest(files, (n) => onEvent({ type: 'hashed', bytes: n }));
-        }
-        ctx.sendControl({ t: 'manifest', manifest: sheet });
-        onEvent({ type: 'offered', files: sheet.files.length, bytes: chunks.totalBytes(sheet) });
-        return;
-      }
-
       if (msg.t === 'want') {
         // Was die Gegenstelle schon hat, wird nicht noch einmal
         // geschickt - das ist das Fortsetzen, und es steht hier in
@@ -203,7 +319,7 @@ function send(transport, { identity, expect = null, files, manifest = null, onEv
       }
 
       if (msg.t === 'done') {
-        finish({ ok: Boolean(msg.ok), sent, peer: ctx.state.peer, missing: msg.missing || [] });
+        finish({ ok: Boolean(msg.ok), sent, peer, missing: msg.missing || [] });
         return;
       }
 
@@ -216,23 +332,44 @@ function send(transport, { identity, expect = null, files, manifest = null, onEv
       }
     };
 
-    transport.onData((bytes) => {
-      try {
-        ctx.channel.push(bytes);
-        for (let packet = ctx.channel.next(); packet; packet = ctx.channel.next()) {
-          if (packet.type !== frame.CONTROL) continue;
-          const msg = frame.readControl(packet.body);
-          if (!msg) return fail(new Error('Unlesbare Steuernachricht'));
-          handle(msg);
-        }
-      } catch (err) {
-        fail(err);
+    /** Alles verarbeiten, was gerade in der Warteschlange des Kanals liegt. */
+    function drain() {
+      for (let packet = channel.next(); packet; packet = channel.next()) {
+        if (packet.type !== frame.CONTROL) continue;
+        const msg = frame.readControl(packet.body);
+        if (!msg) return fail(new Error('Unlesbare Steuernachricht'));
+        handle(msg);
       }
-    });
+    }
 
-    transport.onClose(() => fail(new Error('Die Verbindung wurde getrennt')));
+    connect(transport, { identity, expect, initiator: true, onEvent })
+      .then((h) => {
+        channel = h.channel;
+        sendControl = h.sendControl;
+        peer = h.peer;
 
-    ctx.sendControl(ctx.shake.hello());
+        if (!sheet) {
+          onEvent({ type: 'hashing' });
+          sheet = chunks.buildManifest(files, (n) => onEvent({ type: 'hashed', bytes: n }));
+        }
+        sendControl({ t: 'manifest', manifest: sheet });
+        onEvent({ type: 'offered', files: sheet.files.length, bytes: chunks.totalBytes(sheet) });
+
+        // Die Zustaendigkeit fuer neue Bytes geht ab hier auf uns ueber
+        // (siehe Channel.setOwner) - der Transport selbst wird kein
+        // zweites Mal angefasst.
+        channel.setOwner({
+          onData: drain,
+          onError: fail,
+          onClose: () => fail(new Error('Die Verbindung wurde getrennt'))
+        });
+
+        // Was schon in der Warteschlange lag, bevor wir hier ankamen -
+        // z.B. "want" gleich im selben Paket wie das letzte
+        // Handschlagpaket -, wird jetzt nachgeholt.
+        try { drain(); } catch (err) { fail(err); }
+      })
+      .catch(fail);
   });
 }
 
@@ -240,8 +377,22 @@ function send(transport, { identity, expect = null, files, manifest = null, onEv
  * Empfangen
  * ------------------------------------------------------------------ */
 
-function receive(transport, { identity, expect = null, dir, onEvent = () => {}, dedup = true }) {
-  const ctx = base(transport, { identity, expect, initiator: false, onEvent });
+/**
+ * Die Fortsetzung von receive() ab dem Punkt, an dem der Handschlag
+ * steht und die erste Nachricht schon gelesen ist. `handshake` ist das
+ * Ergebnis von connect(); `ersteNachricht` ist das schon entnommene
+ * erste Paket ({type, body}).
+ *
+ * Eigens herausgezogen, weil der Aufrufer aus genau dieser ersten
+ * Nachricht entscheiden muss, wie es weitergeht, bevor die Uebertragung
+ * beginnt - bei Dateien ist es ein 'manifest', bei einer Nachrichten-
+ * sitzung (talk.js) ein 'say' (siehe node.js, die Weiche liegt dort).
+ */
+function receiveOn(handshake, { dir, dedup = true, onEvent = () => {} }, ersteNachricht) {
+  const { channel, peer } = handshake;
+  const sendControl = handshake.sendControl;
+  const transport = channel.transport;
+
   let sink = null;
   let sheet = null;
   let taken = 0;
@@ -256,12 +407,12 @@ function receive(transport, { identity, expect = null, dir, onEvent = () => {}, 
       // Erst sichern, was schon dalag - der naechste Anlauf baut darauf
       // auf -, dann Bescheid geben, dann auflegen.
       if (sink) { try { sink.close(); } catch { /* egal */ } }
-      // Ohne diese Nachricht sieht die Gegenstelle nur einen Abriss und
-      // raet, woran es lag. Sie geht erst raus, wenn der Kanal steht -
-      // vorher gibt es niemanden, dem man etwas sagen koennte, und
-      // Unverschluesseltes wuerde nur verraten, wer hier wartet.
-      if (ctx.channel.keys) {
-        try { ctx.sendControl({ t: 'error', message: err.message, code: err.code || null }); } catch { /* egal */ }
+      // Der Kanal steht laengst (der Handschlag ist ja schon durch) -
+      // die Pruefung bleibt trotzdem stehen, aus demselben Grund wie
+      // vorher: ohne Schluessel gibt es niemanden, dem man etwas
+      // verschluesselt sagen koennte.
+      if (channel.keys) {
+        try { sendControl({ t: 'error', message: err.message, code: err.code || null }); } catch { /* egal */ }
       }
       try { transport.close(); } catch { /* egal */ }
       reject(err);
@@ -269,16 +420,6 @@ function receive(transport, { identity, expect = null, dir, onEvent = () => {}, 
     const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
 
     const handleControl = (msg) => {
-      if (ctx.state.phase === 'handshake') {
-        const next = ctx.shake.read(msg);
-        if (next) ctx.sendControl(next);
-        if (ctx.shake.done) {
-          ctx.finishHandshake();
-          ctx.state.phase = 'manifest';
-        }
-        return;
-      }
-
       if (msg.t === 'manifest') {
         sheet = msg.manifest;
         if (!sheet || !Array.isArray(sheet.files)) return fail(new Error('Unbrauchbare Dateiliste'));
@@ -306,14 +447,14 @@ function receive(transport, { identity, expect = null, dir, onEvent = () => {}, 
         onEvent({ type: 'plan', total, have, need: want.length });
 
         sink = new chunks.Sink(sheet, dir);
-        ctx.sendControl({ t: 'want', want });
+        sendControl({ t: 'want', want });
         if (!want.length) {
           // Nichts zu holen - trotzdem sauber abschliessen, damit die
           // Dateien auf die richtige Laenge kommen.
           sink.close();
           sink = null;
-          ctx.sendControl({ t: 'done', ok: true, missing: [] });
-          finish({ ok: true, taken: 0, had, recovered, peer: ctx.state.peer, missing: [] });
+          sendControl({ t: 'done', ok: true, missing: [] });
+          finish({ ok: true, taken: 0, had, recovered, peer, missing: [] });
         }
         return;
       }
@@ -326,8 +467,8 @@ function receive(transport, { identity, expect = null, dir, onEvent = () => {}, 
         const rest = chunks.missing(sheet, dir).want;
         const names = [...new Set(rest.map((r) => sheet.files[r.fileIndex].name))];
 
-        ctx.sendControl({ t: 'done', ok: rest.length === 0, missing: names });
-        finish({ ok: rest.length === 0, taken, had, recovered, peer: ctx.state.peer, missing: names });
+        sendControl({ t: 'done', ok: rest.length === 0, missing: names });
+        finish({ ok: rest.length === 0, taken, had, recovered, peer, missing: names });
         return;
       }
 
@@ -340,37 +481,79 @@ function receive(transport, { identity, expect = null, dir, onEvent = () => {}, 
       }
     };
 
-    transport.onData((bytes) => {
-      try {
-        ctx.channel.push(bytes);
-        for (let packet = ctx.channel.next(); packet; packet = ctx.channel.next()) {
-          if (packet.type === frame.CHUNK) {
-            const part = frame.readChunk(packet.body);
-            if (!part || !sink) return fail(new Error('Ein Block kam zur falschen Zeit'));
-            if (!sink.write(part.fileIndex, part.chunkIndex, part.data)) {
-              // Nicht abbrechen: der Block wird beim Nachrechnen
-              // ohnehin als fehlend gemeldet und kann nachgeliefert
-              // werden. Ein einzelner kaputter Block soll nicht eine
-              // Uebertragung von Stunden wegwerfen.
-              onEvent({ type: 'rejected', fileIndex: part.fileIndex, chunkIndex: part.chunkIndex });
-              continue;
-            }
-            taken++;
-            onEvent({ type: 'taken', done: taken, bytes: part.data.length });
-            continue;
-          }
-
-          const msg = frame.readControl(packet.body);
-          if (!msg) return fail(new Error('Unlesbare Steuernachricht'));
-          handleControl(msg);
+    const processPacket = (packet) => {
+      if (packet.type === frame.CHUNK) {
+        const part = frame.readChunk(packet.body);
+        if (!part || !sink) return fail(new Error('Ein Block kam zur falschen Zeit'));
+        if (!sink.write(part.fileIndex, part.chunkIndex, part.data)) {
+          // Nicht abbrechen: der Block wird beim Nachrechnen ohnehin
+          // als fehlend gemeldet und kann nachgeliefert werden. Ein
+          // einzelner kaputter Block soll nicht eine Uebertragung von
+          // Stunden wegwerfen.
+          onEvent({ type: 'rejected', fileIndex: part.fileIndex, chunkIndex: part.chunkIndex });
+          return;
         }
-      } catch (err) {
-        fail(err);
+        taken++;
+        onEvent({ type: 'taken', done: taken, bytes: part.data.length });
+        return;
       }
+
+      const msg = frame.readControl(packet.body);
+      if (!msg) return fail(new Error('Unlesbare Steuernachricht'));
+      handleControl(msg);
+    };
+
+    channel.setOwner({
+      onData: () => {
+        for (let packet = channel.next(); packet; packet = channel.next()) processPacket(packet);
+      },
+      onError: fail,
+      onClose: () => fail(new Error('Die Verbindung wurde getrennt'))
     });
 
-    transport.onClose(() => fail(new Error('Die Verbindung wurde getrennt')));
+    try {
+      processPacket(ersteNachricht);
+    } catch (err) {
+      fail(err);
+    }
   });
 }
 
-module.exports = { send, receive, Channel };
+function receive(transport, { identity, expect = null, dir, onEvent = () => {}, dedup = true }) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      try { transport.close(); } catch { /* egal */ }
+      reject(err);
+    };
+
+    connect(transport, { identity, expect, initiator: false, onEvent })
+      .then((h) => {
+        const weiter = (ersteNachricht) => {
+          if (settled) return;
+          settled = true;
+          receiveOn(h, { dir, dedup, onEvent }, ersteNachricht).then(resolve, reject);
+        };
+
+        // Vielleicht liegt die erste Nachricht schon in der
+        // Warteschlange - im selben Paket wie das letzte
+        // Handschlagpaket. Sonst wird auf sie gewartet.
+        const schonDa = h.next();
+        if (schonDa) { weiter(schonDa); return; }
+
+        h.channel.setOwner({
+          onData: () => {
+            const packet = h.next();
+            if (packet) weiter(packet);
+          },
+          onError: fail,
+          onClose: () => fail(new Error('Die Verbindung wurde getrennt'))
+        });
+      })
+      .catch(fail);
+  });
+}
+
+module.exports = { send, receive, connect, receiveOn, Channel };

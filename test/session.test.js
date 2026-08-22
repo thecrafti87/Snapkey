@@ -281,3 +281,64 @@ test('beim ersten Kontakt wird der Schluessel gelernt und gemeldet', async (t) =
   assert.ok(Buffer.from(s.value.peer.pub).equals(empfaenger.pub));
   assert.ok(Buffer.from(e.value.peer.pub).equals(sender.pub));
 });
+
+/**
+ * Umhuellt einen Transport-Endpunkt so, dass alles, was synchron
+ * hintereinander geschickt wird - ohne dass der Ablauf dazwischen die
+ * Ereignisschleife freigibt -, als EIN einziges Paket beim anderen Ende
+ * ankommt. Ein echter Transport buendelt so (Nagle, Betriebssystem-
+ * Puffer); memory.pair() liefert dagegen jeden send()-Aufruf einzeln
+ * zu, auch mit sliceSize - das trifft die Falle aus Schritt 1 nicht.
+ * Diese Huelle schon: sie schiebt jeden send() in einen gemeinsamen
+ * Puffer und gibt ihn erst beim naechsten freien Tick der
+ * Ereignisschleife weiter, in einem Stueck.
+ */
+function buendelnd(ende) {
+  let puffer = [];
+  let geplant = false;
+  return {
+    onData: (cb) => ende.onData(cb),
+    onClose: (cb) => ende.onClose(cb),
+    close: () => ende.close(),
+    send(bytes) {
+      puffer.push(Buffer.from(bytes));
+      if (geplant) return;
+      geplant = true;
+      setImmediate(() => {
+        const alles = Buffer.concat(puffer);
+        puffer = [];
+        geplant = false;
+        ende.send(alles);
+      });
+    }
+  };
+}
+
+test('Handschlagende und erste Nutzdaten im selben Paket - die Uebertragung laeuft trotzdem vollstaendig durch', async (t) => {
+  // Die Falle aus Schritt 1: der Sender schickt seine letzte
+  // Handschlagnachricht (das "confirm") und gleich danach - noch in
+  // derselben synchronen Ausfuehrung, ohne dass die Ereignisschleife
+  // dazwischen frei wird - schon die erste Nutzlast (das "manifest").
+  // Ueber buendelnd() kommen beide beim Empfaenger in EINEM einzigen
+  // onData-Aufruf an.
+  const dir = tempdir(t);
+  const root = quelle(dir);
+  const ziel = path.join(dir, 'ziel');
+
+  const sender = identity.create();
+  const empfaenger = identity.create();
+
+  const leitung = memory.pair();
+  const files = chunks.scan([root]);
+
+  const senden = session.send(buendelnd(leitung.a), { identity: sender, expect: empfaenger.pub, files });
+  const empfangen = session.receive(leitung.b, { identity: empfaenger, expect: sender.pub, dir: ziel });
+
+  const [s, e] = await Promise.allSettled([senden, empfangen]);
+
+  assert.equal(s.status, 'fulfilled', s.reason && s.reason.message);
+  assert.equal(e.status, 'fulfilled', e.reason && e.reason.message);
+  assert.equal(e.value.ok, true);
+  assert.deepEqual(e.value.missing, []);
+  assert.ok(heil(ziel, root), 'Inhalte stimmen nicht überein');
+});
