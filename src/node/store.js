@@ -20,7 +20,7 @@ const identity = require('../core/identity');
 const b64 = (buf) => Buffer.from(buf).toString('base64url');
 const unb64 = (str) => Buffer.from(String(str), 'base64url');
 
-const homeDir = () => process.env.KAIMAN_HOME || path.join(os.homedir(), '.kaiman');
+const homeDir = () => process.env.SNAPKEY_HOME || path.join(os.homedir(), '.snapkey');
 
 function open(dir = homeDir()) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });

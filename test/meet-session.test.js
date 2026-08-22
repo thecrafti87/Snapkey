@@ -35,7 +35,7 @@ const identity = require('../src/core/identity');
 /* ----------------------------- Aufbau ----------------------------- */
 
 function tempdir(t, praefix) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `kaiman-meet-${praefix}-`));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `snapkey-meet-${praefix}-`));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }

@@ -18,7 +18,7 @@ const nodeMod = require('../src/node/node');
 /* ----------------------------- Aufbau ----------------------------- */
 
 function tempdir(t, praefix) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `kaiman-${praefix}-`));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `snapkey-${praefix}-`));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -99,7 +99,7 @@ test('eine Nachricht von A nach B kommt an und steht bei beiden in der Ablage', 
     assert.equal(abgeschlossen.count, 1);
   });
 
-  await t.test('kaiman.js liest denselben Verlauf ueber node.messages.peers()', () => {
+  await t.test('snapkey.js liest denselben Verlauf ueber node.messages.peers()', () => {
     const peersBeiA = A.n.messages.peers();
     assert.equal(peersBeiA.length, 1);
     assert.equal(peersBeiA[0].address, B.n.me.address);

@@ -2,7 +2,7 @@
 'use strict';
 
 /* =================================================================
-   Die Kommandozeile fuer Kaiman.
+   Die Kommandozeile fuer SNAPKEY.
 
    Sieben Befehle, jeder fuer sich klein: die eigene Anschrift zeigen,
    im Netz umschauen, auf Post warten, Post verschicken, den Treffpunkt
@@ -156,12 +156,12 @@ async function befehlId(flags) {
     const ergebnis = await portmap.open({ port: tcp.DEFAULT_PORT });
     if (ergebnis) {
       console.log(`Öffentlich erreichbar (${ergebnis.method}) unter: ${ergebnis.external.host}:${ergebnis.external.port}`);
-      // Nur zum Zeigen angefordert - "kaiman id" haelt keinen
+      // Nur zum Zeigen angefordert - "snapkey id" haelt keinen
       // Zuhoerer offen, also wird die Freigabe gleich zurueckgegeben.
       await ergebnis.release();
     } else {
       console.log('Keines der drei Verfahren (NAT-PMP, PCP, UPnP) hat geklappt - normal in '
-        + 'vielen Netzen, kein Fehler. "kaiman router" zeigt mehr dazu.');
+        + 'vielen Netzen, kein Fehler. "snapkey router" zeigt mehr dazu.');
     }
   }
 }
@@ -288,7 +288,7 @@ async function befehlListen(flags) {
           console.log(`Portfreigabe (${e.method}): öffentlich erreichbar unter ${e.external.host}:${e.external.port}`);
         } else if (e.state === 'none') {
           console.log('Portfreigabe: keines der drei Verfahren hat geklappt - normal in vielen '
-            + 'Netzen, kein Fehler ("kaiman router" zeigt mehr dazu).');
+            + 'Netzen, kein Fehler ("snapkey router" zeigt mehr dazu).');
         } else if (e.state === 'lost') {
           console.log('Portfreigabe: die Freigabe ist abgelaufen und liess sich nicht erneuern.');
         }
@@ -311,7 +311,7 @@ async function befehlListen(flags) {
     meet: treffpunkt ? { host: treffpunkt.host, port: treffpunkt.port, pass: treffpunktPass } : null
   });
 
-  console.log(`Kaiman hört auf ${n.me.uri}`);
+  console.log(`SNAPKEY hört auf ${n.me.uri}`);
   console.log(`Ziel: ${n.outDir}`);
   console.log(trustNew
     ? 'Neue Gegenstellen werden angenommen.'
@@ -335,7 +335,7 @@ async function befehlListen(flags) {
 
 async function befehlSend(positional, flags) {
   const [ziel, ...pfade] = positional;
-  if (!ziel || !pfade.length) throw new Error('Aufruf: kaiman send <ziel> <pfad...>');
+  if (!ziel || !pfade.length) throw new Error('Aufruf: snapkey send <ziel> <pfad...>');
 
   const an = flags.an ? hostPort(flags.an, tcp.DEFAULT_PORT) : null;
   const treffpunkt = flags.treffpunkt ? hostPort(flags.treffpunkt, meetServerMod.DEFAULT_PORT) : null;
@@ -381,7 +381,7 @@ async function befehlSend(positional, flags) {
 
 async function befehlSay(positional, flags) {
   const [ziel, ...worte] = positional;
-  if (!ziel || !worte.length) throw new Error('Aufruf: kaiman say <ziel> <text...>');
+  if (!ziel || !worte.length) throw new Error('Aufruf: snapkey say <ziel> <text...>');
   const text = worte.join(' ');
 
   const an = flags.an ? hostPort(flags.an, tcp.DEFAULT_PORT) : null;
@@ -422,7 +422,7 @@ async function befehlChat(positional) {
   if (!ziel) {
     const gegenstellen = inbox.peers();
     if (!gegenstellen.length) {
-      console.log('Noch keine Nachrichten. "kaiman say <ziel> <text...>" schickt die erste.');
+      console.log('Noch keine Nachrichten. "snapkey say <ziel> <text...>" schickt die erste.');
       return;
     }
 
@@ -523,42 +523,43 @@ async function befehlRouter() {
 /* -------------------------------- help ---------------------------------- */
 
 function befehlHelp() {
-  console.log(`Kaiman - Dateien und Nachrichten direkt von Gerät zu Gerät
+  console.log(`SNAPKEY - Snap. Send. Done.
+Dateien und Nachrichten direkt von Gerät zu Gerät
 
-  kaiman id [--portfreigabe]                      eigene Anschrift zeigen
-  kaiman peers                                    Geräte im Netz suchen (${Math.round(SUCH_ZEIT_MS / 1000)} s)
-  kaiman listen [--out ORDNER] [--neue-annehmen] [--port N] [--name NAME]
+  snapkey id [--portfreigabe]                      eigene Anschrift zeigen
+  snapkey peers                                    Geräte im Netz suchen (${Math.round(SUCH_ZEIT_MS / 1000)} s)
+  snapkey listen [--out ORDNER] [--neue-annehmen] [--port N] [--name NAME]
                 [--ohne-wiedererkennung] [--ohne-rundruf] [--portfreigabe]
                 [--treffpunkt HOST[:PORT]] [--treffpunkt-pass WORT]
                                                    auf Übertragungen und Nachrichten warten
-  kaiman send <ziel> <pfad...>                    Dateien oder Ordner schicken
+  snapkey send <ziel> <pfad...>                    Dateien oder Ordner schicken
                 [--treffpunkt HOST[:PORT]] [--treffpunkt-pass WORT]
                 [--an HOST[:PORT]]
-  kaiman say <ziel> <text...>                     eine Nachricht schicken
+  snapkey say <ziel> <text...>                     eine Nachricht schicken
                 [--treffpunkt HOST[:PORT]] [--treffpunkt-pass WORT]
                 [--an HOST[:PORT]]
-  kaiman chat [<ziel>]                            Gegenstellen mit Verlauf, oder der Verlauf selbst
-  kaiman treffpunkt [--port N] [--pass WORT]      die Vermittlungsstelle betreiben
-  kaiman router                                   eigenen Router abklopfen (NAT-PMP/PCP/UPnP)
-  kaiman help                                     diese Übersicht
+  snapkey chat [<ziel>]                            Gegenstellen mit Verlauf, oder der Verlauf selbst
+  snapkey treffpunkt [--port N] [--pass WORT]      die Vermittlungsstelle betreiben
+  snapkey router                                   eigenen Router abklopfen (NAT-PMP/PCP/UPnP)
+  snapkey help                                     diese Übersicht
 
 Beispiele:
-  kaiman id
-  kaiman router
-  kaiman listen --out ~/Empfangen --neue-annehmen
-  kaiman listen --out ~/Empfangen --neue-annehmen --treffpunkt dxp8800plus-1
-  kaiman listen --out ~/Empfangen --neue-annehmen --treffpunkt dxp8800plus-1 --portfreigabe
-  kaiman send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub
-  kaiman send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub --treffpunkt dxp8800plus-1
-  kaiman send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub --an 100.x.y.z
-  kaiman say wal-tanne-nordwind-flotte-kiel-schilf Bin gleich da
-  kaiman say wal-tanne-nordwind-flotte-kiel-schilf Bin gleich da --treffpunkt dxp8800plus-1
-  kaiman chat
-  kaiman chat wal-tanne-nordwind-flotte-kiel-schilf
-  kaiman treffpunkt --port 41997 --pass geheimnis
+  snapkey id
+  snapkey router
+  snapkey listen --out ~/Empfangen --neue-annehmen
+  snapkey listen --out ~/Empfangen --neue-annehmen --treffpunkt dxp8800plus-1
+  snapkey listen --out ~/Empfangen --neue-annehmen --treffpunkt dxp8800plus-1 --portfreigabe
+  snapkey send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub
+  snapkey send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub --treffpunkt dxp8800plus-1
+  snapkey send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub --an 100.x.y.z
+  snapkey say wal-tanne-nordwind-flotte-kiel-schilf Bin gleich da
+  snapkey say wal-tanne-nordwind-flotte-kiel-schilf Bin gleich da --treffpunkt dxp8800plus-1
+  snapkey chat
+  snapkey chat wal-tanne-nordwind-flotte-kiel-schilf
+  snapkey treffpunkt --port 41997 --pass geheimnis
 
 <ziel> bei "send" und "say" ist entweder eine Anschrift oder der Name
-eines Geräts, so wie er bei "kaiman peers" auftaucht. Über den
+eines Geräts, so wie er bei "snapkey peers" auftaucht. Über den
 Treffpunkt geht es nur mit einer Anschrift, kein Gerätename - der
 Rundruf reicht dort nicht hin.
 
@@ -573,7 +574,7 @@ Mit --portfreigabe versucht "listen" (und auf Wunsch "id"), den Router
 um eine Portfreigabe zu bitten - klappt das, wird der Treffpunkt für
 diese Übertragungen nur noch zur Vermittlung gebraucht, nicht mehr zur
 Umleitung. Das gelingt oft nicht (abgeschaltet, oder ein Anschluss mit
-geteilter Adresse) - "kaiman router" zeigt, was bei einem selbst geht.`);
+geteilter Adresse) - "snapkey router" zeigt, was bei einem selbst geht.`);
 }
 
 /* --------------------------------- Start --------------------------------- */
@@ -594,7 +595,7 @@ async function main() {
     case 'help':
     case undefined: return befehlHelp();
     default:
-      throw new Error(`Unbekannter Befehl "${befehl}" - "kaiman help" zeigt, was geht.`);
+      throw new Error(`Unbekannter Befehl "${befehl}" - "snapkey help" zeigt, was geht.`);
   }
 }
 

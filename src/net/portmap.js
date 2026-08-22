@@ -471,7 +471,7 @@ async function versuchUpnp({ protocol, port, lifetime }) {
       + `<NewInternalPort>${port}</NewInternalPort>`
       + `<NewInternalClient>${innenIp}</NewInternalClient>`
       + '<NewEnabled>1</NewEnabled>'
-      + '<NewPortMappingDescription>kaiman</NewPortMappingDescription>'
+      + '<NewPortMappingDescription>snapkey</NewPortMappingDescription>'
       + `<NewLeaseDuration>${lifetime}</NewLeaseDuration>`;
 
     const delArgs =

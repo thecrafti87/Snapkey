@@ -23,7 +23,7 @@ const store = require('../src/node/store');
 /* ----------------------------- Aufbau ----------------------------- */
 
 function tempdir(t, praefix) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `kaiman-${praefix}-`));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `snapkey-${praefix}-`));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }

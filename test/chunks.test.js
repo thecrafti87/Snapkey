@@ -21,7 +21,7 @@ const chunks = require('../src/core/chunks');
 const { sha256 } = require('../src/core/crypto');
 
 function tempdir(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kaiman-chunks-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snapkey-chunks-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }

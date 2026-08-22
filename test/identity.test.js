@@ -20,7 +20,7 @@ test('eine frische Kennung ist vollstaendig', () => {
   assert.equal(me.pub.length, 32);
   assert.equal(me.priv.length, 32);
   assert.equal(me.address.split('-').length, id.ADDRESS_WORDS);
-  assert.equal(me.uri, `kaiman:${me.address}`);
+  assert.equal(me.uri, `snapkey:${me.address}`);
   assert.ok(me.fingerprint.length > 0);
 });
 

@@ -82,13 +82,13 @@ test('unmoegliche Zaehlwerte werden abgewiesen', () => {
 test('abgeleitete Schluessel unterscheiden sich nach Verwendung', () => {
   const gemeinsam = c.random(32);
   const salz = c.random(32);
-  const hin = c.hkdf(gemeinsam, salz, 'kaiman i2r');
-  const her = c.hkdf(gemeinsam, salz, 'kaiman r2i');
+  const hin = c.hkdf(gemeinsam, salz, 'snapkey i2r');
+  const her = c.hkdf(gemeinsam, salz, 'snapkey r2i');
 
   assert.equal(hin.length, 32);
   assert.ok(!hin.equals(her), 'beide Richtungen bekamen denselben Schlüssel');
   // Gleiche Zutaten, gleiches Ergebnis - sonst kaeme keine Gegenstelle mit.
-  assert.ok(c.hkdf(gemeinsam, salz, 'kaiman i2r').equals(hin));
+  assert.ok(c.hkdf(gemeinsam, salz, 'snapkey i2r').equals(hin));
 });
 
 test('der Vergleich verraet nichts ueber die Zeit', () => {

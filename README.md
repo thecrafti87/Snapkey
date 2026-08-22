@@ -1,18 +1,30 @@
-# Kaiman — Stufe 0
+# SNAPKEY
 
-Der Kern eines eigenen Übertragungsprotokolls: Rahmenformat, Zerlegung in
-Blöcke, Fortsetzen nach Abbruch, Handschlag und Verschlüsselung. **Ohne Netz** —
-was die Bytes trägt, kommt in Stufe 1 dazu.
+**Snap. Send. Done.**
 
-Arbeitsname. Das Ding heißt so, weil ein Kaiman ein kleines Krokodil ist und die
-Herkunft des Symbols behalten sollte, ohne wieder „croc" zu heißen.
+Dateien und Nachrichten direkt von Gerät zu Gerät — verschlüsselt, ohne Konto,
+ohne dass jemand mitliest. Im eigenen Netz laufen die Daten unmittelbar
+aneinander; über das Internet erst direkt, und nur zur Not über eine
+Vermittlungsstelle, die ohnehin nichts lesen kann.
+
+Ein eigenes Protokoll, kein Aufsatz auf ein fremdes Werkzeug. **Ohne ein
+einziges Fremdpaket** — alles, was es braucht, ist in Node eingebaut.
 
 ```bash
-npm test              # 130 Prüfungen, unter zwei Sekunden, ohne Netz
+npm test                   # 171 Prüfungen, rund acht Sekunden
 node test/vorfuehrung.js   # 39 MB übertragen, abbrechen, fortsetzen
+snapkey help               # die Befehle
 ```
 
-Keine Fremdpakete. Alles, was der Kern braucht, ist in Node eingebaut.
+## Was es besonders macht
+
+- **Fortsetzen nach Abbruch** — es geht nur der Rest raus, nicht alles nochmal
+- **Blockwiedererkennung** — was schon irgendwo im Zielordner liegt, wird gar
+  nicht erst übertragen
+- **Jeder Block einzeln geprüft** — auch der Fall „richtige Größe, Nullen darin"
+  fällt auf
+- **Einmal koppeln, nie wieder tippen** — Geräte erkennen einander am Schlüssel
+- **Kurznachrichten über denselben Weg** wie die Dateien
 
 ## Der Aufbau
 
@@ -58,7 +70,7 @@ Beim ersten Start entsteht ein Schlüsselpaar. Der geheime Teil verlässt das
 Gerät nie, der öffentliche wird zur Anschrift:
 
 ```
-kaiman:quark-ferse-topf-platte-zitrone-nebel
+snapkey:quark-ferse-topf-platte-zitrone-nebel
 ```
 
 Sechs Wörter aus der mitgeführten Liste, 50 Bit, abgeleitet aus der Prüfsumme
@@ -107,55 +119,55 @@ Werkzeug, das man von der Kommandozeile aus benutzen kann — ohne Server, ohne
 Konto, ohne dass irgendetwas außerhalb des eigenen Netzes davon erfährt.
 
 ```bash
-npm install -g .            # oder: node bin/kaiman.js …
-kaiman id                   # eigene Anschrift und Ablageort
-kaiman peers                # wer ist sonst noch da? (6 Sekunden lauschen)
-kaiman listen --neue-annehmen
-kaiman send <anschrift-oder-name> ~/Bilder/urlaub
+npm install -g .            # oder: node bin/snapkey.js …
+snapkey id                   # eigene Anschrift und Ablageort
+snapkey peers                # wer ist sonst noch da? (6 Sekunden lauschen)
+snapkey listen --neue-annehmen
+snapkey send <anschrift-oder-name> ~/Bilder/urlaub
 ```
 
 ## Die vier Befehle
 
-**`kaiman id`** — zeigt die eigene Anschrift, den Fingerabdruck und wo der
+**`snapkey id`** — zeigt die eigene Anschrift, den Fingerabdruck und wo der
 Schlüssel liegt.
 
 ```bash
-$ kaiman id
-Anschrift:     kaiman:quark-ferse-topf-platte-zitrone-nebel
+$ snapkey id
+Anschrift:     snapkey:quark-ferse-topf-platte-zitrone-nebel
 Fingerabdruck: 9f2a 6e10 c3b4 0a71
-Ablage:        /Users/anna/.kaiman
+Ablage:        /Users/anna/.snapkey
 ```
 
-**`kaiman peers`** — lauscht sechs Sekunden auf den Rundruf und zeigt, welche
+**`snapkey peers`** — lauscht sechs Sekunden auf den Rundruf und zeigt, welche
 Geräte im selben Netz geantwortet haben, samt der Frage, ob man mit ihnen
 schon gekoppelt ist.
 
 ```bash
-$ kaiman peers
+$ snapkey peers
 Suche im Netz (6 s) ...
 Name        Anschrift                             Adresse:Port      Gekoppelt
 ----------  ------------------------------------   ---------------   ---------
 Werkstatt   quark-ferse-topf-platte-zitrone-nebel   10.0.0.12:41999   ja
 ```
 
-**`kaiman listen [--out ORDNER] [--neue-annehmen] [--port N] [--name NAME]`**
+**`snapkey listen [--out ORDNER] [--neue-annehmen] [--port N] [--name NAME]`**
 — startet einen Knoten, der auf eingehende Übertragungen wartet, und läuft,
 bis `Strg+C` ihn sauber beendet. Ohne `--neue-annehmen` kommen nur bereits
 gekoppelte Gegenstellen durch.
 
 ```bash
-$ kaiman listen --out ~/Empfangen --neue-annehmen
-Kaiman hört auf kaiman:quark-ferse-topf-platte-zitrone-nebel
+$ snapkey listen --out ~/Empfangen --neue-annehmen
+SNAPKEY hört auf snapkey:quark-ferse-topf-platte-zitrone-nebel
 Ziel: /Users/anna/Empfangen
 Neue Gegenstellen werden angenommen.
 Bereit. Strg+C beendet.
 ```
 
-**`kaiman send <ziel> <pfad...>`** — `<ziel>` ist eine Anschrift oder ein
-Gerätename, wie ihn `kaiman peers` zeigt. Sucht kurz danach, schickt dann.
+**`snapkey send <ziel> <pfad...>`** — `<ziel>` ist eine Anschrift oder ein
+Gerätename, wie ihn `snapkey peers` zeigt. Sucht kurz danach, schickt dann.
 
 ```bash
-$ kaiman send Werkstatt ~/Bilder/urlaub
+$ snapkey send Werkstatt ~/Bilder/urlaub
 Suche "Werkstatt" (bis 6 s) ...
 Gefunden: Werkstatt (10.0.0.12:41999)
   100% - 38.2 MB (Block 39/39)
@@ -189,12 +201,12 @@ Rechenzeit für einen Fall, der beim Übertragen ganzer Ordner selten ist.
 
 Die Suche findet **im Zielordner** statt, bevor die Wunschliste an den
 Sender geht — der Sender selbst ändert sich dadurch nicht und weiß von
-alldem nichts. Mit `--ohne-wiedererkennung` bei `kaiman listen` entfällt
+alldem nichts. Mit `--ohne-wiedererkennung` bei `snapkey listen` entfällt
 die Suche vollständig, und es verhält sich wie zuvor: jeder fehlende Block
 wird angefragt, ganz gleich, was sonst noch im Zielordner liegt.
 
 ```bash
-$ kaiman send Werkstatt ~/Bilder/urlaub
+$ snapkey send Werkstatt ~/Bilder/urlaub
 ...
 Geschickt: 0 Block(e), von der Gegenstelle wiederverwendet: 39, vollständig.
 ```
@@ -212,7 +224,7 @@ Empfangen von ...: vollständig (0 Block(e) neu, 0 schon vorhanden)
 Die Geräteschau ist ein **eigener** Rundruf auf einer eigenen Multicast-Gruppe
 (`src/net/discovery.js`) — bewusst **kein** mDNS/Bonjour. Das spart mehrere
 hundert Zeilen für ein Drahtformat, das hier niemand braucht. Der Preis:
-fremde Programme sehen die Geräte nicht, und `kaiman` sieht umgekehrt auch
+fremde Programme sehen die Geräte nicht, und `snapkey` sieht umgekehrt auch
 keine Geräte, die nur mDNS sprechen. Wer wirklich in die Netzwerk-Norm
 integrieren will, tauscht dafür genau diese eine Datei.
 
@@ -227,20 +239,20 @@ laufen lässt (ein NAS, ein kleiner Server, egal was dauerhaft erreichbar ist),
 zusammenschalten lassen.
 
 ```bash
-kaiman treffpunkt --port 41997 --pass geheimnis
+snapkey treffpunkt --port 41997 --pass geheimnis
 ```
 
-Auf dem empfangenden Gerät meldet sich `kaiman listen` zusätzlich dort an:
+Auf dem empfangenden Gerät meldet sich `snapkey listen` zusätzlich dort an:
 
 ```bash
-kaiman listen --out ~/Empfangen --neue-annehmen \
+snapkey listen --out ~/Empfangen --neue-annehmen \
   --treffpunkt dxp8800plus-1 --treffpunkt-pass geheimnis
 ```
 
 Und beim Senden reicht dieselbe Anschrift, dieselben zwei Flaggen:
 
 ```bash
-kaiman send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub \
+snapkey send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub \
   --treffpunkt dxp8800plus-1 --treffpunkt-pass geheimnis
 ```
 
@@ -282,7 +294,7 @@ Tailscale, eine Portfreigabe, dasselbe Rechenzentrum —, ist `--an
 Treffpunkt, ohne dessen Bandbreite zu belasten:
 
 ```bash
-kaiman send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub --an 100.x.y.z
+snapkey send wal-tanne-nordwind-flotte-kiel-schilf ~/Bilder/urlaub --an 100.x.y.z
 ```
 
 Der Treffpunkt lohnt sich für den Fall, den nichts davon abdeckt: zwei Geräte,
@@ -322,11 +334,11 @@ mit kurzer Frist:
 **Das klappt oft nicht — und das ist kein Fehler.** Viele Router haben
 Portfreigabe abgeschaltet, und manche Internetanschlüsse hängen hinter einer
 Adresse, die sich hunderte andere teilen (Carrier-Grade-NAT) — dort gibt es
-gar keinen eigenen Port zum Freigeben. `kaiman router` zeigt, was bei einem
+gar keinen eigenen Port zum Freigeben. `snapkey router` zeigt, was bei einem
 selbst geht, fragt den Standardrouter ab und probiert alle drei Verfahren:
 
 ```bash
-$ kaiman router
+$ snapkey router
 Standardrouter: 192.168.1.1
 Probiere NAT-PMP, PCP und UPnP (je bis zu einige Sekunden) ...
 Keines der drei Verfahren hat geantwortet - normal in vielen Netzen
@@ -334,11 +346,11 @@ Keines der drei Verfahren hat geantwortet - normal in vielen Netzen
 Kein Fehler.
 ```
 
-Klappt es, zeigt `kaiman listen --portfreigabe` die öffentliche Adresse gleich
+Klappt es, zeigt `snapkey listen --portfreigabe` die öffentliche Adresse gleich
 mit an:
 
 ```bash
-$ kaiman listen --out ~/Empfangen --neue-annehmen --treffpunkt dxp8800plus-1 --portfreigabe
+$ snapkey listen --out ~/Empfangen --neue-annehmen --treffpunkt dxp8800plus-1 --portfreigabe
 ...
 Portfreigabe (natpmp): öffentlich erreichbar unter 203.0.113.7:41999
 Melde mich zusätzlich am Treffpunkt dxp8800plus-1 an ...
@@ -347,7 +359,7 @@ Melde mich zusätzlich am Treffpunkt dxp8800plus-1 an ...
 Der Treffpunkt wird für diese Übertragungen dann nur noch zur **Vermittlung**
 gebraucht, nicht mehr zur Umleitung: der Empfänger meldet dort seine direkte
 Adresse mit an, der Sender probiert sie zuerst und nimmt die Umleitung nur,
-wenn sie nicht erreichbar ist. Die Ausgabe von `kaiman send` sagt, welcher der
+wenn sie nicht erreichbar ist. Die Ausgabe von `snapkey send` sagt, welcher der
 drei Wege es am Ende war:
 
 ```
@@ -356,7 +368,7 @@ Weg: direkt über den Treffpunkt vermittelt
 Weg: über die Umleitung
 ```
 
-`kaiman id --portfreigabe` probiert dasselbe einmalig, nur um die öffentliche
+`snapkey id --portfreigabe` probiert dasselbe einmalig, nur um die öffentliche
 Adresse anzuzeigen — ohne einen Zuhörer offen zu halten, die Freigabe wird
 danach gleich zurückgegeben.
 
@@ -368,38 +380,38 @@ mit demselben Handschlag, derselben Verschlüsselung und demselben
 Festnageln auf den bekannten Schlüssel (`src/core/talk.js`).
 
 ```bash
-kaiman say wal-tanne-nordwind-flotte-kiel-schilf Bin gleich da
-kaiman chat                                       # wer hat geschrieben, wann zuletzt
-kaiman chat wal-tanne-nordwind-flotte-kiel-schilf # der Verlauf mit einer Gegenstelle
+snapkey say wal-tanne-nordwind-flotte-kiel-schilf Bin gleich da
+snapkey chat                                       # wer hat geschrieben, wann zuletzt
+snapkey chat wal-tanne-nordwind-flotte-kiel-schilf # der Verlauf mit einer Gegenstelle
 ```
 
-**`kaiman say <ziel> <text...>`** — schickt eine Nachricht, mit denselben
+**`snapkey say <ziel> <text...>`** — schickt eine Nachricht, mit denselben
 Flaggen wie `send` (`--treffpunkt`, `--treffpunkt-pass`, `--an`). Die Ausgabe
 zeigt den genommenen Weg und ob die Nachricht angekommen ist — "angekommen"
 heißt hier: die Gegenstelle hat sie abgelegt und das ausdrücklich bestätigt,
 nicht nur, dass sie über die Leitung ging.
 
 ```bash
-$ kaiman say Werkstatt Bin gleich da
+$ snapkey say Werkstatt Bin gleich da
 Suche "Werkstatt" (bis 6 s) ...
 Gefunden: Werkstatt (10.0.0.12:41999)
 Weg: im eigenen Netz
 Angekommen (im eigenen Netz).
 ```
 
-**`kaiman chat [<ziel>]`** — ohne Ziel eine Liste der Gegenstellen, mit denen
+**`snapkey chat [<ziel>]`** — ohne Ziel eine Liste der Gegenstellen, mit denen
 es einen Verlauf gibt, samt Anzahl und Zeitpunkt der letzten Nachricht; mit
 Ziel der Verlauf selbst, älteste Nachricht oben. Beides liest nur die eigene
 Ablage (`messages.json`, neben `identity.json` und `peers.json`, Rechte
 `0600`) — dafür muss kein Knoten laufen.
 
 ```bash
-$ kaiman chat
+$ snapkey chat
 Anschrift                              Name        Nachrichten   Zuletzt
 -------------------------------------   ---------   -----------   ------------------
 quark-ferse-topf-platte-zitrone-nebel   Werkstatt   3             21.08.26, 14:03:12
 
-$ kaiman chat quark-ferse-topf-platte-zitrone-nebel
+$ snapkey chat quark-ferse-topf-platte-zitrone-nebel
 21.08.26, 14:01:03  ->  Bin gleich da
 21.08.26, 14:02:47  <-  Bis gleich!
 ```
@@ -408,7 +420,7 @@ $ kaiman chat quark-ferse-topf-platte-zitrone-nebel
 
 Kein neues Vorwort im Protokoll unterscheidet das eine vom anderen — die
 erste Steuernachricht nach dem Handschlag entscheidet: `manifest` bedeutet
-Dateiübertragung, `say` bedeutet eine Nachrichtensitzung. `kaiman listen`
+Dateiübertragung, `say` bedeutet eine Nachrichtensitzung. `snapkey listen`
 behandelt beides über dieselbe Torkontrolle (unbekannte Gegenstelle
 abgewiesen, sofern nicht `--neue-annehmen` läuft) und zeigt eingehende
 Nachrichten deutlich abgesetzt von den Übertragungsmeldungen an:

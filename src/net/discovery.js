@@ -35,7 +35,7 @@ const PORT = 41998;
 const HELLO_MS = 3000;   // wie oft angekuendigt wird
 const STALE_MS = 10000;  // ab wann jemand als weg gilt
 
-const KIND = 'kaiman-hello-v1';
+const KIND = 'snapkey-hello-v1';
 
 /* ---------------------- Nachrichten formen ---------------------- */
 
@@ -166,7 +166,7 @@ function start({ identity, port, name = os.hostname(), onChange = () => {} }) {
          * Sucht nach Anschrift oder Geraetenamen.
          *
          * Die Anschrift wird durch dieselbe Normalisierung geschickt wie
-         * ueberall sonst - wer "kaiman:Wort-Wort" einfuegt oder sie sich
+         * ueberall sonst - wer "snapkey:Wort-Wort" einfuegt oder sie sich
          * hat vorlesen lassen, soll nicht daran scheitern, dass hier
          * genau verglichen wird.
          */

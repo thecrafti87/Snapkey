@@ -24,7 +24,7 @@ const memory = require('../src/transport/memory');
 /* ----------------------------- Aufbau ----------------------------- */
 
 function tempdir(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kaiman-test-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snapkey-test-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }

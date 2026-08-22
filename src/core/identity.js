@@ -7,7 +7,7 @@
    verlaesst das Geraet nie. Der oeffentliche Teil ist die Kennung -
    nur in einer Form, die man vorlesen kann:
 
-     kaiman:uhr-kaese-feder-rock-zucker-eimer
+     snapkey:uhr-kaese-feder-rock-zucker-eimer
 
    Sechs Woerter aus der Liste, abgeleitet aus dem oeffentlichen
    Schluessel. Die Kennung ist eine ANSCHRIFT, kein Geheimnis: sie sagt,
@@ -24,7 +24,7 @@
 const { WORDS } = require('./words');
 const { keyPair, sha256, equal } = require('./crypto');
 
-const SCHEME = 'kaiman';
+const SCHEME = 'snapkey';
 const ADDRESS_WORDS = 6;
 
 // Wie viele Bits sich mit sechs Woertern darstellen lassen. Der Wert

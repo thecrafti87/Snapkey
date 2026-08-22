@@ -17,7 +17,7 @@ const memory = require('../src/transport/memory');
 const MB = 1024 * 1024;
 const mb = (n) => `${(n / MB).toFixed(1)} MB`;
 
-const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kaiman-vorfuehrung-'));
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snapkey-vorfuehrung-'));
 const root = path.join(dir, 'quelle', 'urlaub');
 const ziel = path.join(dir, 'ziel');
 fs.mkdirSync(path.join(root, 'videos'), { recursive: true });

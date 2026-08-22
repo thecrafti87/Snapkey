@@ -23,7 +23,7 @@ const identity = require('../src/core/identity');
 const tcp = require('../src/net/tcp');
 
 function tempdir(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kaiman-tcp-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'snapkey-tcp-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }

@@ -29,7 +29,7 @@
 
 const { keyPair, dh, sha256, hkdf, equal } = require('./crypto');
 
-const PROTO = Buffer.from('kaiman-handshake-v1-x25519-hkdf-sha256-aes256gcm', 'utf8');
+const PROTO = Buffer.from('snapkey-handshake-v1-x25519-hkdf-sha256-aes256gcm', 'utf8');
 
 const b64 = (buf) => Buffer.from(buf).toString('base64url');
 const unb64 = (str) => Buffer.from(String(str), 'base64url');
@@ -59,17 +59,17 @@ function derive(self, peer, initiator, transcript) {
     : dh(self.eph.priv, self.eph.pub, peer.stat);
   const ss = dh(self.stat.priv, self.stat.pub, peer.stat);
 
-  const master = hkdf(Buffer.concat([ee, es, se, ss]), transcript, 'kaiman master');
+  const master = hkdf(Buffer.concat([ee, es, se, ss]), transcript, 'snapkey master');
 
   return {
     master,
     // Jede Richtung bekommt ihren eigenen Schluessel. Sonst muessten
     // sich beide Seiten ueber die Zaehlwerte einig sein, und ein
     // wiederholter Zaehler bricht bei GCM alles auf.
-    i2r: hkdf(master, transcript, 'kaiman i2r'),
-    r2i: hkdf(master, transcript, 'kaiman r2i'),
-    confirmInit: hkdf(master, transcript, 'kaiman confirm initiator'),
-    confirmResp: hkdf(master, transcript, 'kaiman confirm responder')
+    i2r: hkdf(master, transcript, 'snapkey i2r'),
+    r2i: hkdf(master, transcript, 'snapkey r2i'),
+    confirmInit: hkdf(master, transcript, 'snapkey confirm initiator'),
+    confirmResp: hkdf(master, transcript, 'snapkey confirm responder')
   };
 }
 
