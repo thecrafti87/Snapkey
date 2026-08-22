@@ -174,7 +174,14 @@ async function befehlPeers() {
   // Reines Zuhoeren, kein eigener Zuhoerer auf einem echten Port - der
   // Rundruf verlangt trotzdem eine Portzahl in der Ankuendigung. Sie
   // bleibt hier ungenutzt, es wird ja niemand angerufen.
-  const beacon = await discovery.start({ identity: box.me, port: 1, name: os.hostname(), onChange: () => {} });
+  // Scheitert das Binden - Port belegt, Multicast im Netz verboten -,
+  // ist das ein Satz wert und kein Stapelabzug.
+  let beacon;
+  try {
+    beacon = await discovery.start({ identity: box.me, port: 1, name: os.hostname(), onChange: () => {} });
+  } catch (err) {
+    throw new Error(`Die Geräteschau liess sich nicht starten: ${err.message}`);
+  }
 
   console.log(`Suche im Netz (${Math.round(SUCH_ZEIT_MS / 1000)} s) ...`);
   await warten(SUCH_ZEIT_MS);

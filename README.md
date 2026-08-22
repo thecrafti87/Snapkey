@@ -559,14 +559,41 @@ SNAPKEY_HOME=~/.snapkey-b npm run app
 
 Ehrlich gesagt, und nicht verschwiegen:
 
-- **Nur macOS** — ein Windows- oder Linux-Paket gibt es nicht, nur das DMG
-  für Apple Silicon und Intel.
+- **Windows und Linux ungeprüft** — Pakete werden dort gebaut und ihre
+  Prüfungen laufen durch, aber auf einem echten Windows- oder Linux-Gerät
+  ausprobiert wurde noch keins davon — siehe „Welche Systeme" unten.
 - **Kein Veröffentlichungsort eingetragen** — `npm run dist` baut ein
   echtes, startfähiges Paket, aber wohin damit veröffentlicht wird (welches
   GitHub-Repo die Fassungen trägt), ist noch nicht entschieden. Das
   Selbstupdate sagt das ehrlich, statt stillschweigend nichts zu tun oder
   gegen ein leeres Ziel zu fragen — siehe „Installieren und aktualisieren"
   unten.
+
+## Welche Systeme
+
+| System  | Paketformen        | Architektur | Gebaut von |
+| ------- | ------------------ | ----------- | ---------- |
+| macOS   | `.dmg`              | arm64, x64  | dieser Mac (`npm run dist`) oder CI |
+| Windows | NSIS-Installer, `.zip` | x64      | nur CI (`npm run dist:win`) |
+| Linux   | `.AppImage`, `.deb` | x64         | nur CI (`npm run dist:linux`) |
+
+Entwickelt wird auf einem Mac — Windows- und Linux-Pakete lassen sich von
+dort aus nicht sinnvoll bauen (electron-builder braucht dafür das
+jeweilige System). Deshalb übernimmt das `.github/workflows/build.yml`:
+bei jedem Push einer Marke `v1.2.3` bauen drei eigene Läufer
+(`macos-latest`, `windows-latest`, `ubuntu-latest`) je ihr Paket — aber
+erst, nachdem `npm test` auf **jedem** der drei grün war. Das ist mehr als
+eine Formalität: der Kern hat keine Fremdpakete und war bis dahin nur auf
+macOS wirklich gelaufen — erst die CI zeigt, ob er auch unter Windows und
+Linux durchläuft. Signiert wird dabei nirgends — dafür gibt es kein
+Zertifikat auf den Läufern, und das ist auch nicht der Anspruch.
+
+**Ehrlich gesagt:** Windows- und Linux-Pakete wurden bisher **nicht auf
+einem echten Gerät ausprobiert**. Belegt ist bislang nur, dass sie sich
+bauen lassen und dass die Prüfungen dort grün durchlaufen — nicht, dass
+Zuhören, Senden, Empfangen, Geräteschau oder die Oberfläche selbst dort
+tatsächlich wie erwartet funktionieren. Das eine ist ein CI-Ergebnis, das
+andere wäre eine echte Probe.
 
 ## Installieren und aktualisieren
 

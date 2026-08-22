@@ -225,6 +225,14 @@ test('ein Fremder mit derselben Anschrift kommt nicht durch', async (t) => {
 /* ---------------------------- Die Ablage ---------------------------- */
 
 test('der Schluessel liegt sicher auf der Platte', (t) => {
+  // Windows kennt keine Unix-Rechte-Bits - store.js setzt mode: 0o600
+  // trotzdem (schadet nicht), aber statSync() gibt dort etwas anderes
+  // zurueck. Auf macOS/Linux bleibt die Pruefung unveraendert scharf.
+  if (process.platform === 'win32') {
+    t.skip('Unix-Rechte-Bits gelten unter Windows nicht');
+    return;
+  }
+
   const heim = tempdir(t, 'schluessel');
   store.open(heim);
 

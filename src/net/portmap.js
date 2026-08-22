@@ -103,9 +103,46 @@ function gatewayUeberBefehl() {
   return null;
 }
 
+/**
+ * Windows: weder `/proc/net/route` (Linux) noch das Wort "default" am
+ * Zeilenanfang (BSD-`netstat`) gibt es hier. Sowohl `route print -4`
+ * als auch `netstat -rn` zeigen stattdessen dieselbe IPv4-Routentabelle:
+ * Netzwerkziel, Netzmaske, Gateway, Schnittstelle, Metrik - die
+ * Standardroute erkennt man an "0.0.0.0" in den ersten zwei Spalten.
+ */
+function parseWindowsRouteOutput(text) {
+  if (typeof text !== 'string') return null;
+  for (const zeile of text.split(/\r?\n/)) {
+    const spalten = zeile.trim().split(/\s+/);
+    if (spalten.length < 3) continue;
+    if (spalten[0] !== '0.0.0.0' || spalten[1] !== '0.0.0.0') continue;
+    const gw = spalten[2];
+    if (gw && /^\d{1,3}(\.\d{1,3}){3}$/.test(gw)) return gw;
+  }
+  return null;
+}
+
+function gatewayWindows() {
+  try {
+    const out = execFileSync('route', ['print', '-4'], { encoding: 'utf8', timeout: 2000 });
+    const gw = parseWindowsRouteOutput(out);
+    if (gw) return gw;
+  } catch {
+    // weiter mit netstat
+  }
+
+  try {
+    const out = execFileSync('netstat', ['-rn'], { encoding: 'utf8', timeout: 2000 });
+    return parseWindowsRouteOutput(out);
+  } catch {
+    return null;
+  }
+}
+
 /** Der Standardrouter dieses Rechners, oder `null` wenn er sich nicht ermitteln liess. */
 function gateway() {
   if (process.platform === 'linux') return gatewayLinux();
+  if (process.platform === 'win32') return gatewayWindows();
   return gatewayUeberBefehl();
 }
 
@@ -622,5 +659,8 @@ module.exports = {
   upnp: {
     extractTag,
     findControlUrl
+  },
+  windows: {
+    parseRouteOutput: parseWindowsRouteOutput
   }
 };

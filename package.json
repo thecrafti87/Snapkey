@@ -1,6 +1,6 @@
 {
   "name": "snapkey",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Dateien und Nachrichten verschlüsselt direkt zwischen zwei Geräten übertragen, ohne Server und ohne Konto",
   "license": "MIT",
@@ -13,6 +13,8 @@
     "app": "electron app/main.js",
     "pack": "electron-builder --dir",
     "dist": "electron-builder --mac --arm64 --x64",
+    "dist:win": "electron-builder --win",
+    "dist:linux": "electron-builder --linux",
     "signatur": "node scripts/signatur.js",
     "dist:signiert": "node scripts/signatur.js && electron-builder --mac --arm64 --x64 && node scripts/beglaubigen.js"
   },
@@ -48,6 +50,28 @@
       "icon": "app/assets/icon.icns",
       "artifactName": "${productName}-${version}-${arch}.${ext}",
       "writeUpdateInfo": false
+    },
+    "win": {
+      "icon": "app/assets/icon.png",
+      "target": [
+        "nsis",
+        "zip"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    },
+    "linux": {
+      "icon": "app/assets/icon.png",
+      "category": "Network",
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "publish": {
       "provider": "github",

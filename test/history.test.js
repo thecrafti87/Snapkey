@@ -94,6 +94,15 @@ test('clear() leert den Verlauf, list() bleibt danach leer', (t) => {
 });
 
 test('history.json bekommt die Rechte 0600', (t) => {
+  // Windows kennt keine Unix-Rechte-Bits - dort kaeme unabhaengig vom
+  // uebergebenen "mode" etwas anderes aus statSync() zurueck. Das ist
+  // kein Fehler von history.js, nur eine Aussage, die sich dort nicht
+  // treffen laesst.
+  if (process.platform === 'win32') {
+    t.skip('Unix-Rechte-Bits gelten unter Windows nicht');
+    return;
+  }
+
   const dir = tempdir(t);
   const h = historyMod.open(dir);
   h.add({ kind: 'send', peer: 'irgendwer' });
@@ -119,7 +128,12 @@ test('kaputter Inhalt (kein JSON) fuehrt nicht zum Absturz - open() faengt ihn a
 test('eine wirklich unlesbare Datei (Rechte 000) fuehrt ebenfalls nicht zum Absturz', (t) => {
   // Als root wuerden Dateirechte beim Lesen ignoriert - dann liesse
   // sich dieser Fall hier gar nicht herstellen, und die Pruefung waere
-  // ein Blindgaenger statt einer echten Aussage.
+  // ein Blindgaenger statt einer echten Aussage. Unter Windows greift
+  // chmod(0o000) erst gar nicht wie erwartet - dieselbe Lage.
+  if (process.platform === 'win32') {
+    t.skip('Unix-Rechte-Bits gelten unter Windows nicht');
+    return;
+  }
   if (process.getuid && process.getuid() === 0) {
     t.skip('laeuft als root - Dateirechte greifen dort nicht');
     return;

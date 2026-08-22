@@ -1,0 +1,110 @@
+# =====================================================================
+# Baut SNAPKEY fuer macOS, Windows und Linux.
+#
+# Entwickelt wird auf einem Mac - Windows- und Linux-Pakete lassen sich
+# von dort nicht sinnvoll bauen. Deshalb uebernehmen das hier drei
+# eigene Laeufer, jeder mit seinem eigenen System. Auf jedem laueft
+# zuerst npm test: das ist der eigentliche Gewinn dieses Ablaufs - erst
+# hier zeigt sich, ob der abhaengigkeitsfreie Kern auf Windows und
+# Linux wirklich durchlaeuft, nicht nur auf dem Mac, auf dem er
+# entstanden ist. Erst wenn alle drei Laeufer gruen sind, wird gebaut.
+#
+#   - nur bei einem Push einer Marke "v1.2.3" - nicht bei jedem Push
+# =====================================================================
+
+name: Build
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Ein kaputtes System soll die anderen beiden nicht abwuergen -
+      # gerade weil hier zum ersten Mal wirklich geprueft wird, ob der
+      # Kern auf allen dreien durchlaeuft.
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            # Der Laeufer selbst ist arm64 - das x64-Paket muss man
+            # eigens erbitten. Genau das tut das vorhandene dist-Skript
+            # schon (electron-builder --mac --arm64 --x64).
+            run: npm run dist -- --publish never
+          - name: Windows
+            os: windows-latest
+            run: npm run dist:win -- --publish never
+          - name: Linux
+            os: ubuntu-latest
+            run: npm run dist:linux -- --publish never
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Pruefungen
+        run: npm test
+
+      - name: Paket bauen
+        run: ${{ matrix.run }}
+        env:
+          # Kein Zertifikat auf dem Laeufer - ohne diese Abschaltung
+          # wuerde electron-builder auf macOS versuchen, eins in der
+          # Keychain zu finden, und daran scheitern. Unsigniert bauen
+          # ist hier die Absicht, kein Notbehelf: signiert wird nur von
+          # Hand, ueber dist:signiert auf einem Mac mit echter
+          # Developer-ID (siehe package.json).
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SNAPKEY-${{ matrix.name }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            build/*.dmg
+            build/*.exe
+            build/*.zip
+            build/*.AppImage
+            build/*.deb
+
+  release:
+    name: Veroeffentlichung
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: pakete
+          merge-multiple: true
+
+      - run: ls -lh pakete
+
+      # Als Entwurf: erst nachsehen, dann von Hand veroeffentlichen.
+      - name: Entwurf anlegen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "${GITHUB_REF_NAME#v}" \
+            --generate-notes \
+            --draft \
+            pakete/*

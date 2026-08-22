@@ -218,14 +218,24 @@ async function open({
 
   /* -------------------------- Sich zeigen -------------------------- */
 
-  const beacon = announce
-    ? await discovery.start({
-      identity: me,
-      port: server.port,
-      name,
-      onChange: (peers) => onEvent({ type: 'peers', peers })
-    })
-    : null;
+  // Ein gescheitertes Binden (Port 41998 schon belegt, oder ein System,
+  // das reuseAddr anders behandelt als erwartet) soll nicht den ganzen
+  // Knoten mitreissen - server.listen() oben ist schon geglueckt, und
+  // ohne Geraetesuche bleibt der Knoten trotzdem ueber eine von Hand
+  // eingetragene Anschrift erreichbar.
+  let beacon = null;
+  if (announce) {
+    try {
+      beacon = await discovery.start({
+        identity: me,
+        port: server.port,
+        name,
+        onChange: (peers) => onEvent({ type: 'peers', peers })
+      });
+    } catch (err) {
+      onEvent({ type: 'discovery', state: 'none', message: err.message });
+    }
+  }
 
   /* --------------------------- Portfreigabe --------------------------- */
 
