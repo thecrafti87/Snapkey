@@ -163,6 +163,133 @@ function missing(manifest, dir, onProgress = () => {}) {
   return { want, have, total: totalChunks(manifest) };
 }
 
+/* ------------------------ Blockwiedererkennung ------------------------ */
+
+/**
+ * Sucht im Zielordner nach Bloecken mit bestimmten Pruefsummen.
+ *
+ * Erkennt Umbenennen, Verschieben, Kopieren und eine zweite Fassung
+ * eines Ordners - der Inhalt eines Blocks bleibt dabei unveraendert,
+ * nur sein Name oder Pfad aendert sich. Was NICHT erkannt wird: ein
+ * Einschub mitten in einer Datei. Die Bloecke liegen an festen
+ * 1-MiB-Grenzen INNERHALB einer Datei; ein Einschub verschiebt alles
+ * Folgende um einen Versatz, der kein Vielfaches von CHUNK_SIZE ist,
+ * und keine Pruefsumme trifft mehr. Das ist eine bewusste Grenze: ein
+ * Rolling Hash faende auch das, kostet aber ein Vielfaches an Rechenzeit
+ * fuer einen Fall, der beim Uebertragen ganzer Ordner selten ist.
+ */
+function indexBlocks(dir, wanted, { maxBytes = 64 * 1024 * 1024 * 1024, onProgress = () => {} } = {}) {
+  const found = new Map();
+  if (!wanted.size) return { found, scanned: 0, truncated: false };
+
+  let scanned = 0;
+  let truncated = false;
+
+  outer:
+  for (const file of scan([dir])) {
+    let fd;
+    try {
+      fd = fs.openSync(file.abs, 'r');
+    } catch {
+      continue;
+    }
+
+    try {
+      const anzahl = chunkCount(file.size);
+      for (let index = 0; index < anzahl; index++) {
+        const data = readChunk(fd, file.size, index);
+        scanned += data.length;
+        onProgress(data.length);
+
+        const hex = sha256(data).toString('hex');
+        if (wanted.has(hex) && !found.has(hex)) found.set(hex, { abs: file.abs, index, size: file.size });
+
+        if (found.size >= wanted.size) break outer;
+        if (scanned > maxBytes) { truncated = true; break outer; }
+      }
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
+  return { found, scanned, truncated };
+}
+
+/**
+ * Holt, was lokal schon vorhanden ist, an seinen Platz - und gibt
+ * zurueck, was danach noch ueber die Leitung muss.
+ *
+ * Pro Block gilt: erst die Quelle lesen, dann schreiben - nie
+ * andersherum. Die Quelle eines Blocks kann in einer Datei liegen, die
+ * hier gerade entsteht, sogar an einer anderen Stelle derselben Datei;
+ * wer erst schreibt und dann liest, liest nur noch das, was er selbst
+ * gerade hingelegt hat. Und weil ein frueherer Schreibvorgang in
+ * diesem selben Durchlauf eine Stelle veraendert haben kann, auf die
+ * der Index noch von vorhin zeigt, wird die Pruefsumme der Quelle
+ * unmittelbar vor dem Kopieren noch einmal nachgerechnet - stimmt sie
+ * nicht mehr, bleibt der Block in der Wunschliste und geht regulaer
+ * ueber die Leitung. Sink.write prueft ohnehin noch einmal nach; das
+ * hier ist die Absicherung davor, nicht der Ersatz dafuer.
+ */
+function recover(manifest, dir, want, { maxBytes, onProgress = () => {} } = {}) {
+  if (!want.length) return { want: [], recovered: 0, scanned: 0, truncated: false };
+
+  const wanted = new Set();
+  want.forEach((w) => {
+    const file = manifest.files[w.fileIndex];
+    if (file) wanted.add(file.chunks[w.chunkIndex]);
+  });
+
+  const { found, scanned, truncated } = indexBlocks(dir, wanted, {
+    maxBytes,
+    onProgress: (bytes) => onProgress({ phase: 'index', bytes })
+  });
+
+  // Nur fuer die Fortschrittsanzeige: wie viele Treffer es ueberhaupt gibt.
+  const treffer = want.filter((w) => {
+    const file = manifest.files[w.fileIndex];
+    return file && found.has(file.chunks[w.chunkIndex]);
+  }).length;
+
+  const sink = new Sink(manifest, dir);
+  const rest = [];
+  let recovered = 0;
+
+  try {
+    for (const w of want) {
+      const file = manifest.files[w.fileIndex];
+      const expected = file && file.chunks[w.chunkIndex];
+      const hit = expected && found.get(expected);
+      if (!hit) { rest.push(w); continue; }
+
+      let data = null;
+      try {
+        const fd = fs.openSync(hit.abs, 'r');
+        try {
+          data = readChunk(fd, hit.size, hit.index);
+        } finally {
+          fs.closeSync(fd);
+        }
+      } catch {
+        // Die Quelle ist inzwischen weg - dann eben regulaer uebertragen.
+      }
+
+      const passtNochImmer = data && sha256(data).toString('hex') === expected;
+      if (!passtNochImmer || !sink.write(w.fileIndex, w.chunkIndex, data)) {
+        rest.push(w);
+        continue;
+      }
+
+      recovered++;
+      onProgress({ phase: 'recover', done: recovered, of: treffer });
+    }
+  } finally {
+    sink.close();
+  }
+
+  return { want: rest, recovered, scanned, truncated };
+}
+
 /* --------------------------- Hineinlegen --------------------------- */
 
 /**
@@ -230,5 +357,6 @@ class Sink {
 module.exports = {
   CHUNK_SIZE, chunkCount, span,
   scan, hashChunks, buildManifest, totalBytes, totalChunks,
-  missing, readChunk, Sink
+  missing, readChunk, Sink,
+  indexBlocks, recover
 };

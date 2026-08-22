@@ -8,7 +8,7 @@ Arbeitsname. Das Ding heißt so, weil ein Kaiman ein kleines Krokodil ist und di
 Herkunft des Symbols behalten sollte, ohne wieder „croc" zu heißen.
 
 ```bash
-npm test              # 83 Prüfungen, unter einer Sekunde, ohne Netz
+npm test              # 130 Prüfungen, unter zwei Sekunden, ohne Netz
 node test/vorfuehrung.js   # 39 MB übertragen, abbrechen, fortsetzen
 ```
 
@@ -159,6 +159,51 @@ Suche "Werkstatt" (bis 6 s) ...
 Gefunden: Werkstatt (10.0.0.12:41999)
   100% - 38.2 MB (Block 39/39)
 Geschickt: 39 Block(e), von der Gegenstelle wiederverwendet: 0, vollständig.
+```
+
+## Blockwiedererkennung
+
+Bevor ein fehlender Block über die Leitung angefragt wird, schaut der
+Empfänger zuerst im eigenen Zielordner nach: vielleicht liegt der Inhalt
+schon da, nur unter einem anderen Namen. Erkannt wird das über dieselben
+Blockprüfsummen, die auch das Fortsetzen tragen — nicht über Dateinamen
+oder Zeitstempel.
+
+**Was erkannt wird:**
+
+- eine **umbenannte** Datei
+- eine **verschobene** Datei (auch in einen anderen Unterordner)
+- eine **kopierte** Datei, irgendwo im Zielordner
+- die **zweite Fassung eines Ordners**, in dem sich nur wenig geändert hat —
+  jeder unveränderte Block wird wiedererkannt, nur die echten Änderungen
+  gehen über die Leitung
+
+**Was nicht erkannt wird:** ein **Einschub mitten in einer Datei**. Blöcke
+liegen an festen 1-MiB-Grenzen *innerhalb* einer Datei; Umbenennen,
+Verschieben und Kopieren lassen diese Grenzen unangetastet, ein Einschub
+verschiebt aber alles Folgende um einen Versatz, der kein Vielfaches von
+1 MiB ist — keine Prüfsumme trifft danach mehr. Das ist eine bewusste
+Grenze: ein Rolling Hash fände auch das, kostet aber ein Vielfaches an
+Rechenzeit für einen Fall, der beim Übertragen ganzer Ordner selten ist.
+
+Die Suche findet **im Zielordner** statt, bevor die Wunschliste an den
+Sender geht — der Sender selbst ändert sich dadurch nicht und weiß von
+alldem nichts. Mit `--ohne-wiedererkennung` bei `kaiman listen` entfällt
+die Suche vollständig, und es verhält sich wie zuvor: jeder fehlende Block
+wird angefragt, ganz gleich, was sonst noch im Zielordner liegt.
+
+```bash
+$ kaiman send Werkstatt ~/Bilder/urlaub
+...
+Geschickt: 0 Block(e), von der Gegenstelle wiederverwendet: 39, vollständig.
+```
+
+Beim Empfänger steht dazu, während es passiert:
+
+```
+Bekannte Gegenstelle: ...
+  39 Block(e) lokal wiederhergestellt (ohne Übertragung)
+Empfangen von ...: vollständig (0 Block(e) neu, 0 schon vorhanden)
 ```
 
 ## Ehrlich gesagt: kein mDNS

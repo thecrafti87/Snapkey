@@ -18,6 +18,7 @@ const os = require('os');
 const path = require('path');
 
 const chunks = require('../src/core/chunks');
+const { sha256 } = require('../src/core/crypto');
 
 function tempdir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kaiman-chunks-'));
@@ -189,4 +190,151 @@ test('eine zu lange Datei wird zurechtgeschnitten', async (t) => {
   sink.close();
 
   assert.equal(fs.readFileSync(path.join(ziel, 'daten', 'kurz.txt'), 'utf8'), 'kurz');
+});
+
+/* --------------------- Blockwiedererkennung: indexBlocks --------------------- */
+
+test('indexBlocks findet Bloecke anhand ihrer Pruefsumme', async (t) => {
+  const dir = tempdir(t);
+  const root = path.join(dir, 'daten');
+  const inhaltA = MUSTER(chunks.CHUNK_SIZE, 11);
+  const inhaltB = MUSTER(chunks.CHUNK_SIZE, 22);
+  schreibe(path.join(root, 'a.bin'), inhaltA);
+  schreibe(path.join(root, 'b.bin'), inhaltB);
+  const hexA = sha256(inhaltA).toString('hex');
+  const hexB = sha256(inhaltB).toString('hex');
+
+  await t.test('ein Block, der in einer anderen Datei liegt, wird gefunden', () => {
+    const { found, truncated } = chunks.indexBlocks(root, new Set([hexA]));
+    assert.equal(truncated, false);
+    const treffer = found.get(hexA);
+    assert.ok(treffer, 'der Block wurde nicht gefunden');
+    assert.equal(treffer.abs, path.join(root, 'a.bin'));
+    assert.equal(treffer.index, 0);
+  });
+
+  await t.test('die Suche hoert auf, sobald alles gefunden ist', () => {
+    // "a.bin" kommt beim Scannen zuerst (alphabetisch) - ist der
+    // gesuchte Block schon dort, wird "b.bin" gar nicht mehr angefasst.
+    const { scanned } = chunks.indexBlocks(root, new Set([hexA]));
+    const gesamt = chunks.scan([root]).reduce((n, f) => n + f.size, 0);
+    assert.ok(scanned < gesamt, 'es wurde mehr gelesen, als noetig gewesen waere');
+  });
+
+  await t.test('truncated, wenn maxBytes zu klein gesetzt wird', () => {
+    // Der gesuchte Block liegt in "b.bin" - "a.bin" muss dafuer schon
+    // komplett gelesen werden, und danach ist maxBytes ausgeschoepft.
+    const { truncated, found } = chunks.indexBlocks(root, new Set([hexB]), { maxBytes: chunks.CHUNK_SIZE / 2 });
+    assert.equal(truncated, true);
+    assert.equal(found.size, 0, 'trotz Abbruch faelschlich etwas gemeldet');
+  });
+
+  await t.test('ein Block, der nirgends passt, bleibt ungefunden', () => {
+    const irgendwas = sha256(Buffer.from('kommt hier nicht vor')).toString('hex');
+    const { found } = chunks.indexBlocks(root, new Set([irgendwas]));
+    assert.equal(found.size, 0);
+  });
+});
+
+/* ----------------------- Blockwiedererkennung: recover ----------------------- */
+
+test('recover holt vorhandene Bloecke, statt sie erneut anzufordern', async (t) => {
+  await t.test('eine umbenannte Datei wird zurueckgeholt, ohne dass ein Byte fehlt', () => {
+    const dir = tempdir(t);
+    const root = path.join(dir, 'daten');
+    const inhalt = MUSTER(2.5 * chunks.CHUNK_SIZE, 5);
+    schreibe(path.join(root, 'original.bin'), inhalt);
+    const manifest = chunks.buildManifest(chunks.scan([root]));
+
+    const ziel = path.join(dir, 'ziel');
+    // Beim Empfaenger liegt genau dieser Inhalt schon - nur unter
+    // einem anderen Namen, so wie nach einem Umbenennen oder Verschieben.
+    schreibe(path.join(ziel, 'daten', 'umbenannt.bin'), inhalt);
+
+    const { want: fehlend } = chunks.missing(manifest, ziel);
+    assert.equal(fehlend.length, 3, 'die Datei unter dem erwarteten Namen fehlt komplett');
+
+    const ergebnis = chunks.recover(manifest, ziel, fehlend);
+    assert.equal(ergebnis.want.length, 0, 'es sollte nichts mehr fehlen');
+    assert.equal(ergebnis.recovered, 3);
+    assert.ok(fs.readFileSync(path.join(ziel, 'daten', 'original.bin')).equals(inhalt));
+  });
+
+  await t.test('Selbstbezug: zwei gleiche Bloecke kommen aus derselben verschobenen Quelle', () => {
+    const dir = tempdir(t);
+    const root = path.join(dir, 'daten');
+    const stueck = MUSTER(chunks.CHUNK_SIZE, 42);
+    const mitte = MUSTER(chunks.CHUNK_SIZE, 9);
+    // Block 0 und Block 2 sind absichtlich gleich.
+    const inhalt = Buffer.concat([stueck, mitte, stueck]);
+    schreibe(path.join(root, 'original.bin'), inhalt);
+    const manifest = chunks.buildManifest(chunks.scan([root]));
+    assert.equal(manifest.files[0].chunks[0], manifest.files[0].chunks[2], 'Testaufbau: Bloecke muessten gleich sein');
+
+    const ziel = path.join(dir, 'ziel');
+    schreibe(path.join(ziel, 'daten', 'verschoben.bin'), inhalt);
+
+    const { want: fehlend } = chunks.missing(manifest, ziel);
+    assert.equal(fehlend.length, 3);
+
+    const ergebnis = chunks.recover(manifest, ziel, fehlend);
+    assert.equal(ergebnis.want.length, 0);
+    assert.equal(ergebnis.recovered, 3);
+    assert.ok(fs.readFileSync(path.join(ziel, 'daten', 'original.bin')).equals(inhalt),
+      'nach dem Wiederherstellen muss der Inhalt vollstaendig und korrekt sein');
+  });
+
+  await t.test('veralteter Index: ein Block wird uebersprungen statt falsch kopiert', () => {
+    const dir = tempdir(t);
+    const CS = chunks.CHUNK_SIZE;
+    const c0 = MUSTER(CS, 10);
+    const c1 = MUSTER(CS, 20);
+    const c2 = MUSTER(CS, 30);
+    const w0 = MUSTER(CS, 40); // an Position 0 im Zielordner: falsch
+    const w2 = MUSTER(CS, 50); // an Position 2 im Zielordner: falsch
+
+    const root = path.join(dir, 'daten');
+    schreibe(path.join(root, 'gross.bin'), Buffer.concat([c0, c1, c2]));
+    const manifest = chunks.buildManifest(chunks.scan([root]));
+
+    const ziel = path.join(dir, 'ziel');
+    const zielGross = path.join(ziel, ...manifest.files[0].name.split('/'));
+    // Position 1 haelt im Zielordner zufaellig schon den Inhalt von
+    // Block 2 - das ist der Zeitpunkt, den indexBlocks sieht.
+    schreibe(zielGross, Buffer.concat([w0, c2, w2]));
+    // Block 1 selbst liegt unversehrt an ganz anderer Stelle.
+    schreibe(path.join(ziel, 'anderswo', 'ersatz.bin'), c1);
+
+    const { want: fehlend } = chunks.missing(manifest, ziel);
+    assert.equal(fehlend.length, 3, 'keine der drei Positionen stimmt bisher');
+
+    const ergebnis = chunks.recover(manifest, ziel, fehlend);
+
+    // Block 1 wird aus "ersatz.bin" geholt - dabei wird Position 1 in
+    // "gross.bin" ueberschrieben. Der Index fuer Block 2 zeigte aber
+    // genau auf diese Position: die erneute Pruefsumme dort passt jetzt
+    // nicht mehr, also bleibt Block 2 in der Wunschliste statt falsch
+    // aus der (nun veraenderten) Stelle kopiert zu werden.
+    assert.equal(ergebnis.recovered, 1, 'nur Block 1 liess sich wirklich wiederherstellen');
+    assert.deepEqual(ergebnis.want.map((w) => w.chunkIndex).sort(), [0, 2]);
+
+    const nachher = fs.readFileSync(zielGross);
+    assert.ok(nachher.subarray(CS, 2 * CS).equals(c1), 'Block 1 wurde korrekt nachgetragen');
+    assert.ok(nachher.subarray(2 * CS).equals(w2), 'Block 2 wurde nicht faelschlich ueberschrieben');
+  });
+
+  await t.test('ein Block, dessen Pruefsumme nirgends passt, bleibt in der Wunschliste', () => {
+    const dir = tempdir(t);
+    const root = path.join(dir, 'daten');
+    schreibe(path.join(root, 'x.bin'), MUSTER(chunks.CHUNK_SIZE, 77));
+    const manifest = chunks.buildManifest(chunks.scan([root]));
+
+    const ziel = path.join(dir, 'ziel');
+    fs.mkdirSync(ziel, { recursive: true }); // leer - da ist nichts zu finden
+
+    const fehlend = [{ fileIndex: 0, chunkIndex: 0 }];
+    const ergebnis = chunks.recover(manifest, ziel, fehlend);
+    assert.deepEqual(ergebnis.want, fehlend);
+    assert.equal(ergebnis.recovered, 0);
+  });
 });

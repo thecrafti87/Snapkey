@@ -31,6 +31,10 @@ async function open({
   port = 0,
   trustNew = false,
   announce = true,
+  // Blockwiedererkennung: was schon irgendwo im Zielordner liegt, wird
+  // nicht noch einmal uebertragen. Abschaltbar, weil das Durchlesen des
+  // Zielordners bei sehr grossen Ablagen spuerbar sein kann.
+  dedup = true,
   onEvent = () => {}
 } = {}) {
   const box = store.open(home);
@@ -79,6 +83,7 @@ async function open({
         identity: me,
         expect: null,          // wer es ist, entscheidet die Torkontrolle
         dir: outDir,
+        dedup,
         onEvent: (e) => {
           if (e.type === 'secure') {
             const wer = pruefen(e.peer.pub);

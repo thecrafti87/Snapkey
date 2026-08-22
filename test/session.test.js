@@ -62,7 +62,9 @@ const ERWARTET = [
 ];
 
 /** Ein Durchlauf. Gibt zurueck, was beide Seiten am Ende sagen. */
-async function lauf(root, ziel, { sender, empfaenger, gekoppelt = true, cutAfter = Infinity, sliceSize = 0 } = {}) {
+async function lauf(root, ziel, {
+  sender, empfaenger, gekoppelt = true, cutAfter = Infinity, sliceSize = 0, dedup = true
+} = {}) {
   const leitung = memory.pair({ cutAfter, sliceSize });
   const files = chunks.scan([root]);
 
@@ -74,7 +76,8 @@ async function lauf(root, ziel, { sender, empfaenger, gekoppelt = true, cutAfter
   const empfangen = session.receive(leitung.b, {
     identity: empfaenger,
     expect: gekoppelt ? sender.pub : null,
-    dir: ziel
+    dir: ziel,
+    dedup
   });
 
   const [s, e] = await Promise.allSettled([senden, empfangen]);
@@ -201,6 +204,43 @@ test('eine kaputte Datei im Zielordner wird ersetzt, nicht uebersehen', async (t
   assert.ok(reparatur.s.value.sent > 0, 'die Nullen wurden für heil gehalten');
   assert.equal(reparatur.e.value.ok, true);
   assert.ok(heil(ziel, root));
+});
+
+test('eine umbenannte Datei beim Empfaenger muss nicht erneut geschickt werden', async (t) => {
+  const dir = tempdir(t);
+  const root = quelle(dir);
+  const ziel = path.join(dir, 'ziel');
+
+  const sender = identity.create();
+  const empfaenger = identity.create();
+
+  await lauf(root, ziel, { sender, empfaenger });
+  assert.ok(heil(ziel, root), 'der erste Durchlauf muss schon vollstaendig sein');
+
+  // Der Inhalt bleibt exakt derselbe - nur der Name aendert sich.
+  fs.renameSync(path.join(ziel, 'daten', 'a-gross.bin'), path.join(ziel, 'daten', 'a-umbenannt.bin'));
+
+  const zweiter = await lauf(root, ziel, { sender, empfaenger });
+
+  assert.equal(zweiter.s.status, 'fulfilled', zweiter.s.reason && zweiter.s.reason.message);
+  assert.equal(zweiter.e.status, 'fulfilled', zweiter.e.reason && zweiter.e.reason.message);
+  assert.equal(zweiter.s.value.sent, 0, 'trotz Umbenennen wurde wieder etwas über die Leitung geschickt');
+  assert.ok(zweiter.e.value.recovered > 0, 'der Empfänger hat nichts lokal wiederhergestellt');
+  assert.equal(zweiter.e.value.ok, true);
+  assert.ok(heil(ziel, root), 'nach dem Wiederherstellen stimmt der Inhalt nicht mehr');
+
+  await t.test('mit dedup: false bleibt es beim alten Verhalten - es wird uebertragen', async () => {
+    const ziel2 = path.join(dir, 'ziel2');
+    await lauf(root, ziel2, { sender, empfaenger });
+    fs.renameSync(path.join(ziel2, 'daten', 'a-gross.bin'), path.join(ziel2, 'daten', 'a-umbenannt.bin'));
+
+    const ohne = await lauf(root, ziel2, { sender, empfaenger, dedup: false });
+
+    assert.equal(ohne.e.value.recovered, 0, 'ohne dedup haette nichts wiederhergestellt werden duerfen');
+    assert.ok(ohne.s.value.sent > 0, 'ohne dedup haette wieder uebertragen werden muessen');
+    assert.equal(ohne.e.value.ok, true);
+    assert.ok(heil(ziel2, root));
+  });
 });
 
 test('wer den falschen Schluessel hat, kommt nicht durch', async (t) => {

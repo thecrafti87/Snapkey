@@ -240,12 +240,13 @@ function send(transport, { identity, expect = null, files, manifest = null, onEv
  * Empfangen
  * ------------------------------------------------------------------ */
 
-function receive(transport, { identity, expect = null, dir, onEvent = () => {} }) {
+function receive(transport, { identity, expect = null, dir, onEvent = () => {}, dedup = true }) {
   const ctx = base(transport, { identity, expect, initiator: false, onEvent });
   let sink = null;
   let sheet = null;
   let taken = 0;
   let had = 0;      // was beim Nachsehen schon heil dalag
+  let recovered = 0;  // was aus dem Zielordner selbst wiederhergestellt wurde
 
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -286,8 +287,22 @@ function receive(transport, { identity, expect = null, dir, onEvent = () => {} }
 
         // Hier entsteht das Fortsetzen: nachsehen, was schon daliegt.
         onEvent({ type: 'checking' });
-        const { want, have, total } = chunks.missing(sheet, dir, (n) => onEvent({ type: 'checked', bytes: n }));
+        let { want, have, total } = chunks.missing(sheet, dir, (n) => onEvent({ type: 'checked', bytes: n }));
         had = have;
+
+        // Bevor die Wunschliste rausgeht: der Inhalt liegt vielleicht
+        // schon woanders im Zielordner - umbenannt, verschoben, oder
+        // als zweite Fassung eines Ordners mit wenig Aenderung. Das
+        // muss dann nicht mehr ueber die Leitung.
+        if (dedup && want.length) {
+          const geholt = chunks.recover(sheet, dir, want);
+          recovered = geholt.recovered;
+          want = geholt.want;
+          if (recovered > 0 || geholt.truncated) {
+            onEvent({ type: 'recovered', count: recovered, scanned: geholt.scanned, truncated: geholt.truncated });
+          }
+        }
+
         onEvent({ type: 'plan', total, have, need: want.length });
 
         sink = new chunks.Sink(sheet, dir);
@@ -298,7 +313,7 @@ function receive(transport, { identity, expect = null, dir, onEvent = () => {} }
           sink.close();
           sink = null;
           ctx.sendControl({ t: 'done', ok: true, missing: [] });
-          finish({ ok: true, taken: 0, had, peer: ctx.state.peer, missing: [] });
+          finish({ ok: true, taken: 0, had, recovered, peer: ctx.state.peer, missing: [] });
         }
         return;
       }
@@ -312,7 +327,7 @@ function receive(transport, { identity, expect = null, dir, onEvent = () => {} }
         const names = [...new Set(rest.map((r) => sheet.files[r.fileIndex].name))];
 
         ctx.sendControl({ t: 'done', ok: rest.length === 0, missing: names });
-        finish({ ok: rest.length === 0, taken, had, peer: ctx.state.peer, missing: names });
+        finish({ ok: rest.length === 0, taken, had, recovered, peer: ctx.state.peer, missing: names });
         return;
       }
 

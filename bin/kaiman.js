@@ -18,6 +18,7 @@ const path = require('path');
 const os = require('os');
 
 const identity = require('../src/core/identity');
+const chunks = require('../src/core/chunks');
 const store = require('../src/node/store');
 const discovery = require('../src/net/discovery');
 const nodeMod = require('../src/node/node');
@@ -49,7 +50,7 @@ function tabelle(zeilen, spalten) {
 /* ------------------------------ Argumente ------------------------------ */
 
 // Flaggen ohne Wert dahinter - der Rest schluckt das naechste Wort.
-const SCHALTER = new Set(['neue-annehmen']);
+const SCHALTER = new Set(['neue-annehmen', 'ohne-wiedererkennung']);
 
 function parseArgs(argv) {
   const positional = [];
@@ -135,6 +136,16 @@ async function befehlListen(flags) {
         if (laufend.has(e.from)) laufend.get(e.from).total = e.bytes;
         break;
 
+      case 'recovered':
+        // Nur eine Meldung wert, wenn wirklich etwas dabei herauskam -
+        // session.js loest dieses Ereignis ohnehin nur dann aus.
+        if (e.count > 0) console.log(`  ${e.count} Block(e) lokal wiederhergestellt (ohne Übertragung)`);
+        if (e.truncated) {
+          console.error('  Hinweis: die Suche nach wiederverwendbaren Blöcken im Zielordner wurde '
+            + 'abgebrochen (zu groß) - nicht der ganze Ordner wurde durchsucht.');
+        }
+        break;
+
       case 'taken': {
         const stand = laufend.get(e.from);
         if (!stand) break;
@@ -170,7 +181,8 @@ async function befehlListen(flags) {
   }
 
   const n = await nodeMod.open({
-    outDir, trustNew, port, name: flags.name, announce: true, onEvent: melden
+    outDir, trustNew, port, name: flags.name, announce: true, onEvent: melden,
+    dedup: !flags['ohne-wiedererkennung']
   });
 
   console.log(`Kaiman hört auf ${n.me.uri}`);
@@ -240,8 +252,8 @@ async function befehlSend(positional, flags) {
     });
 
     const wiederverwendet = plan ? plan.total - plan.send : 0;
-    console.log(`Geschickt: ${res.sent} Block(e), von der Gegenstelle wiederverwendet: ${wiederverwendet}, `
-      + `${res.ok ? 'vollständig' : 'unvollständig'}.`);
+    const zusatz = wiederverwendet > 0 ? `, von der Gegenstelle wiederverwendet: ${wiederverwendet}` : '';
+    console.log(`Geschickt: ${res.sent} Block(e)${zusatz}, ${res.ok ? 'vollständig' : 'unvollständig'}.`);
     if (!res.ok) console.log(`Fehlt noch: ${res.missing.join(', ')}`);
   } finally {
     await n.close();
@@ -256,6 +268,7 @@ function befehlHelp() {
   kaiman id                                       eigene Anschrift zeigen
   kaiman peers                                    Geräte im Netz suchen (${Math.round(SUCH_ZEIT_MS / 1000)} s)
   kaiman listen [--out ORDNER] [--neue-annehmen] [--port N] [--name NAME]
+                [--ohne-wiedererkennung]
                                                    auf Übertragungen warten
   kaiman send <ziel> <pfad...>                    Dateien oder Ordner schicken
   kaiman help                                     diese Übersicht
