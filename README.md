@@ -438,3 +438,70 @@ Eine Nachricht ist höchstens 8000 Zeichen lang, eine Sitzung trägt höchstens
 100 davon — darüber hinaus wird klar abgelehnt, nicht stillschweigend
 gekürzt. Je Gegenstelle werden höchstens 500 Nachrichten aufgehoben, ältere
 fallen hinten heraus.
+
+# Die Oberfläche
+
+Neben der Kommandozeile gibt es jetzt auch ein Fenster — eine erste Stufe,
+gebaut mit Electron, die um denselben Kern herumgelegt ist wie `bin/snapkey.js`.
+Der Kern selbst weiß davon nichts und braucht Electron nicht: `npm test` läuft
+unverändert ohne es, Electron steckt als reine `devDependency` nur in der
+Hülle unter `app/`.
+
+```bash
+npm run app
+```
+
+Das öffnet **einen** SNAPKEY-Knoten und hält ihn offen, solange das Fenster
+lebt. Ändert man etwas, das den Knoten betrifft (Gerätename, Port, „neue
+annehmen", Zielordner, Treffpunkt, Portfreigabe), wird er sauber geschlossen
+und mit den neuen Werten wieder geöffnet — ehrlicher, als seinen Zustand im
+Laufen zu verbiegen. Die Einstellungen selbst liegen neben den üblichen
+Electron-Anwendungsdaten (`app/settings.json` im `userData`-Ordner), nicht
+unter `~/.snapkey` — dort liegen weiterhin nur Schlüssel und Gegenstellen,
+das gehört allein dem Kern.
+
+Eine Leiste links, vier Ansichten rechts:
+
+- **Senden** — Dateien und Ordner per Ablagefläche oder Dialog auswählen,
+  ein Gerät aus der Liste wählen oder eine Anschrift von Hand eintragen,
+  senden. Während der Übertragung zeigt eine Karte Balken, Prozent und den
+  genommenen Weg (eigenes Netz, direkt über den Treffpunkt vermittelt, oder
+  über die Umleitung); am Ende, wie viele Blöcke tatsächlich geschickt und
+  wie viele von der Gegenstelle wiederverwendet wurden.
+- **Empfangen** — groß und mit einem Klick kopierbar die eigene Anschrift
+  samt Fingerabdruck, das ist, was man weitergibt. Darunter der Zielordner
+  mit Ändern-Knopf, der Schalter „neue Geräte annehmen", und die Liste der
+  eingegangenen Übertragungen — abgewiesene Anrufe eingeschlossen, mit dem
+  Grund.
+- **Geräte** — was der Rundruf im eigenen Netz gerade findet, zusammengeführt
+  mit dem, was schon gekoppelt ist. Anschrift kopierbar, dazu Knöpfe zum
+  Koppeln bzw. Vergessen.
+- **Einstellungen** — Gerätename, Zielordner, Port, „neue annehmen",
+  Blockwiedererkennung, Treffpunkt (Adresse, Port, Passwort), Portfreigabe,
+  Sprache (Deutsch, Englisch, Französisch). Unten die Fassung und der
+  Hinweis, wo die Schlüssel liegen.
+
+Zwei Fenster gegeneinander ausprobieren: jedes bekommt sein eigenes
+`SNAPKEY_HOME`, damit sie nicht dieselben Schlüssel teilen.
+
+```bash
+SNAPKEY_HOME=~/.snapkey-a npm run app
+SNAPKEY_HOME=~/.snapkey-b npm run app
+```
+
+## Was diese erste Stufe noch nicht kann
+
+Ehrlich gesagt, und nicht verschwiegen:
+
+- **Keine Kurznachrichten** — der Kern kann `say`/`listen` (siehe oben), die
+  Oberfläche zeigt bislang keine Ansicht dafür an.
+- **Kein Verlauf** — weder abgeschlossene Übertragungen noch Nachrichten
+  überstehen einen Neustart des Fensters, es wird nichts mitgeschrieben.
+- **Kein Menüleistensymbol** — kein Tray-Icon, kein Schließen ins Symbol
+  hinein, das Fenster ist die ganze Anwendung.
+- **Keine Mitteilungen** — nichts meldet sich außerhalb des Fensters, wenn
+  eine Übertragung ankommt, während man woanders ist.
+- **Kein Selbstupdate** — eine neue Fassung bedeutet neu bauen und neu
+  starten, kein Blick auf veröffentlichte Fassungen.
+- **Kein fertiges Paket** — es gibt kein `.dmg`, `.exe` oder `.AppImage` zum
+  Weitergeben, nur `npm run app` aus dem Quelltext heraus.

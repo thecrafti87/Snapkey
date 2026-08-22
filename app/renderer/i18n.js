@@ -1,0 +1,331 @@
+'use strict';
+
+/* =================================================================
+   Sprachtabellen fuer die Oberflaeche.
+
+   Wird sowohl vom Renderer als auch - ueber test/app.test.js - direkt
+   in Node geladen, deshalb der doppelte Ausgang am Dateiende (siehe
+   CrocGUI, derselbe Mechanismus). Platzhalter sind {0}, {1}, ...
+   ================================================================= */
+
+const LANGS = [
+  { code: 'en', label: 'EN' },
+  { code: 'de', label: 'DE' },
+  { code: 'fr', label: 'FR' }
+];
+
+const DEFAULT_LANG = 'en';
+
+const I18N = {
+
+  /* ------------------------------- EN ------------------------------- */
+  en: {
+    'nav.send': 'Send',
+    'nav.receive': 'Receive',
+    'nav.devices': 'Devices',
+    'nav.settings': 'Settings',
+
+    'app.running': 'ready',
+    'app.offline': 'not running',
+    'app.error': 'error: {0}',
+
+    'send.kicker': '01 · outgoing',
+    'send.title': 'Send',
+    'send.lede': 'Drop files or folders, pick a device, done. Encrypted end to end, straight from device to device.',
+    'send.dropTitle': 'Drag files or folders here',
+    'send.dropOr': 'or',
+    'send.dropBrowse': 'browse',
+    'send.device': 'Device',
+    'send.deviceNone': 'Enter an address by hand',
+    'send.address': 'Address',
+    'send.addressHint': '(or a device name from the same network)',
+    'send.addressPlaceholder': 'snapkey:word-word-word-word-word-word',
+    'send.start': 'Send',
+    'send.clear': 'Clear selection',
+    'send.summary': '{0} item(s), {1}',
+    'send.folderTag': 'Folder',
+    'send.remove': 'Remove',
+    'send.needFiles': 'Pick at least one file or folder first.',
+    'send.needTarget': 'Pick a device or enter an address.',
+    'send.offline': 'This device is not online right now.',
+
+    'job.stateRunning': 'running',
+    'job.stateDone': 'done',
+    'job.stateFailed': 'failed',
+    'job.routeLabel': 'Route: {0}',
+    'job.routeLan': 'own network',
+    'job.routeDirect': 'direct, via the meeting point',
+    'job.routeRelay': 'relayed',
+    'job.sent': 'Sent: {0} block(s)',
+    'job.sentReused': 'Sent: {0} block(s), {1} reused by the other side',
+    'job.received': 'Received: {0} block(s) new, {1} already there',
+    'job.recovered': '{0} block(s) recovered locally',
+    'job.reveal': 'Show folder',
+    'job.missing': 'Still missing: {0}',
+
+    'recv.kicker': '02 · incoming',
+    'recv.title': 'Receive',
+    'recv.lede': 'This is your address - pass it on, and files sent to it land here.',
+    'recv.addressLabel': 'Your address',
+    'recv.copy': 'Copy address',
+    'recv.fingerprint': 'Fingerprint: {0}',
+    'recv.outDir': 'Target folder',
+    'recv.choose': 'Choose',
+    'recv.trustNewLabel': 'New devices',
+    'recv.trustNew': 'Accept new devices',
+    'recv.empty': 'No transfers yet.',
+
+    'dev.kicker': '03 · nearby',
+    'dev.title': 'Devices',
+    'dev.lede': 'What the network scan has found, and what is already paired.',
+    'dev.empty': 'No devices found yet - make sure the other device is on and on the same network.',
+    'dev.pairMark': '+',
+    'dev.pairTitle': 'Pair',
+    'dev.forgetMark': '×',
+    'dev.forgetTitle': 'Forget',
+    'dev.online': 'Online at {0}',
+    'dev.offline': 'Not online right now',
+    'dev.paired': 'Paired',
+    'dev.notPaired': 'Not paired yet',
+
+    'set.kicker': '04 · configuration',
+    'set.title': 'Settings',
+    'set.lede': 'What the node gets when it opens - a change here closes it and opens it again.',
+    'set.name': 'Device name',
+    'set.nameHint': '(empty uses the computer name)',
+    'set.namePlaceholder': 'e.g. Study',
+    'set.outDir': 'Target folder',
+    'set.choose': 'Choose',
+    'set.port': 'Port',
+    'set.portHint': '(0 = automatic)',
+    'set.behaviour': 'Behaviour',
+    'set.trustNew': 'Accept new devices',
+    'set.dedup': 'Recognise blocks already on disk',
+    'set.meetHost': 'Meeting point',
+    'set.meetHostHint': '(optional, for reaching devices outside this network)',
+    'set.meetHostPlaceholder': 'host',
+    'set.meetPassPlaceholder': 'password',
+    'set.network': 'Network',
+    'set.portmap': 'Ask the router to open a port',
+    'set.lang': 'Language',
+    'set.version': 'Version {0}',
+    'set.keysAt': 'Keys are kept at {0}',
+    'set.portmapMapped': 'Reachable from outside at {0} ({1})',
+    'set.portmapLost': 'The port mapping expired and could not be renewed.',
+    'set.portmapNone': 'None of the three methods worked - normal on many networks, not an error.',
+
+    'toast.copied': 'Copied to the clipboard'
+  },
+
+  /* ------------------------------- DE ------------------------------- */
+  de: {
+    'nav.send': 'Senden',
+    'nav.receive': 'Empfangen',
+    'nav.devices': 'Geräte',
+    'nav.settings': 'Einstellungen',
+
+    'app.running': 'bereit',
+    'app.offline': 'nicht aktiv',
+    'app.error': 'Fehler: {0}',
+
+    'send.kicker': '01 · ausgehend',
+    'send.title': 'Senden',
+    'send.lede': 'Dateien oder Ordner ablegen, ein Gerät wählen, fertig. Verschlüsselt direkt von Gerät zu Gerät.',
+    'send.dropTitle': 'Dateien oder Ordner hierher ziehen',
+    'send.dropOr': 'oder',
+    'send.dropBrowse': 'auswählen',
+    'send.device': 'Gerät',
+    'send.deviceNone': 'Anschrift von Hand eingeben',
+    'send.address': 'Anschrift',
+    'send.addressHint': '(oder ein Gerätename aus demselben Netz)',
+    'send.addressPlaceholder': 'snapkey:wort-wort-wort-wort-wort-wort',
+    'send.start': 'Senden',
+    'send.clear': 'Auswahl leeren',
+    'send.summary': '{0} Element(e), {1}',
+    'send.folderTag': 'Ordner',
+    'send.remove': 'Entfernen',
+    'send.needFiles': 'Erst mindestens eine Datei oder einen Ordner auswählen.',
+    'send.needTarget': 'Ein Gerät wählen oder eine Anschrift eingeben.',
+    'send.offline': 'Dieses Gerät ist gerade nicht online.',
+
+    'job.stateRunning': 'läuft',
+    'job.stateDone': 'fertig',
+    'job.stateFailed': 'fehlgeschlagen',
+    'job.routeLabel': 'Weg: {0}',
+    'job.routeLan': 'eigenes Netz',
+    'job.routeDirect': 'direkt über den Treffpunkt vermittelt',
+    'job.routeRelay': 'über die Umleitung',
+    'job.sent': 'Geschickt: {0} Block(e)',
+    'job.sentReused': 'Geschickt: {0} Block(e), {1} davon von der Gegenstelle wiederverwendet',
+    'job.received': 'Empfangen: {0} Block(e) neu, {1} schon vorhanden',
+    'job.recovered': '{0} Block(e) lokal wiederhergestellt',
+    'job.reveal': 'Zielordner zeigen',
+    'job.missing': 'Fehlt noch: {0}',
+
+    'recv.kicker': '02 · eingehend',
+    'recv.title': 'Empfangen',
+    'recv.lede': 'Das ist deine Anschrift — gib sie weiter, und was dorthin geschickt wird, landet hier.',
+    'recv.addressLabel': 'Deine Anschrift',
+    'recv.copy': 'Anschrift kopieren',
+    'recv.fingerprint': 'Fingerabdruck: {0}',
+    'recv.outDir': 'Zielordner',
+    'recv.choose': 'Wählen',
+    'recv.trustNewLabel': 'Neue Geräte',
+    'recv.trustNew': 'Neue Geräte annehmen',
+    'recv.empty': 'Noch keine Übertragungen.',
+
+    'dev.kicker': '03 · in der Nähe',
+    'dev.title': 'Geräte',
+    'dev.lede': 'Was der Rundruf gefunden hat, und was schon gekoppelt ist.',
+    'dev.empty': 'Noch kein Gerät gefunden - sicherstellen, dass das andere Gerät an und im selben Netz ist.',
+    'dev.pairMark': '+',
+    'dev.pairTitle': 'Koppeln',
+    'dev.forgetMark': '×',
+    'dev.forgetTitle': 'Vergessen',
+    'dev.online': 'Online unter {0}',
+    'dev.offline': 'Gerade nicht online',
+    'dev.paired': 'Gekoppelt',
+    'dev.notPaired': 'Noch nicht gekoppelt',
+
+    'set.kicker': '04 · Einrichtung',
+    'set.title': 'Einstellungen',
+    'set.lede': 'Was der Knoten beim Öffnen bekommt - eine Änderung hier schliesst ihn und öffnet ihn neu.',
+    'set.name': 'Gerätename',
+    'set.nameHint': '(leer verwendet den Rechnernamen)',
+    'set.namePlaceholder': 'z. B. Arbeitszimmer',
+    'set.outDir': 'Zielordner',
+    'set.choose': 'Wählen',
+    'set.port': 'Port',
+    'set.portHint': '(0 = automatisch)',
+    'set.behaviour': 'Verhalten',
+    'set.trustNew': 'Neue Geräte annehmen',
+    'set.dedup': 'Schon vorhandene Blöcke erkennen',
+    'set.meetHost': 'Treffpunkt',
+    'set.meetHostHint': '(optional, für Geräte ausserhalb dieses Netzes)',
+    'set.meetHostPlaceholder': 'Adresse',
+    'set.meetPassPlaceholder': 'Passwort',
+    'set.network': 'Netzwerk',
+    'set.portmap': 'Router um eine Portfreigabe bitten',
+    'set.lang': 'Sprache',
+    'set.version': 'Fassung {0}',
+    'set.keysAt': 'Schlüssel liegen unter {0}',
+    'set.portmapMapped': 'Von aussen erreichbar unter {0} ({1})',
+    'set.portmapLost': 'Die Portfreigabe ist abgelaufen und liess sich nicht erneuern.',
+    'set.portmapNone': 'Keines der drei Verfahren hat geklappt - normal in vielen Netzen, kein Fehler.',
+
+    'toast.copied': 'In die Zwischenablage kopiert'
+  },
+
+  /* ------------------------------- FR ------------------------------- */
+  fr: {
+    'nav.send': 'Envoyer',
+    'nav.receive': 'Recevoir',
+    'nav.devices': 'Appareils',
+    'nav.settings': 'Réglages',
+
+    'app.running': 'prêt',
+    'app.offline': 'arrêté',
+    'app.error': 'erreur : {0}',
+
+    'send.kicker': '01 · envoi',
+    'send.title': 'Envoyer',
+    'send.lede': 'Déposez des fichiers ou dossiers, choisissez un appareil, terminé. Chiffré de bout en bout, directement d’appareil à appareil.',
+    'send.dropTitle': 'Glissez des fichiers ou dossiers ici',
+    'send.dropOr': 'ou',
+    'send.dropBrowse': 'parcourir',
+    'send.device': 'Appareil',
+    'send.deviceNone': 'Saisir une adresse manuellement',
+    'send.address': 'Adresse',
+    'send.addressHint': '(ou un nom d’appareil du même réseau)',
+    'send.addressPlaceholder': 'snapkey:mot-mot-mot-mot-mot-mot',
+    'send.start': 'Envoyer',
+    'send.clear': 'Vider la sélection',
+    'send.summary': '{0} élément(s), {1}',
+    'send.folderTag': 'Dossier',
+    'send.remove': 'Retirer',
+    'send.needFiles': 'Choisissez au moins un fichier ou un dossier.',
+    'send.needTarget': 'Choisissez un appareil ou saisissez une adresse.',
+    'send.offline': 'Cet appareil n’est pas en ligne actuellement.',
+
+    'job.stateRunning': 'en cours',
+    'job.stateDone': 'terminé',
+    'job.stateFailed': 'échoué',
+    'job.routeLabel': 'Voie : {0}',
+    'job.routeLan': 'réseau local',
+    'job.routeDirect': 'direct, via le point de rencontre',
+    'job.routeRelay': 'relayé',
+    'job.sent': 'Envoyé : {0} bloc(s)',
+    'job.sentReused': 'Envoyé : {0} bloc(s), {1} réutilisé(s) par l’autre appareil',
+    'job.received': 'Reçu : {0} bloc(s) nouveaux, {1} déjà présents',
+    'job.recovered': '{0} bloc(s) récupéré(s) localement',
+    'job.reveal': 'Afficher le dossier',
+    'job.missing': 'Il manque encore : {0}',
+
+    'recv.kicker': '02 · réception',
+    'recv.title': 'Recevoir',
+    'recv.lede': 'Voici votre adresse - transmettez-la, et les envois qui lui sont destinés arrivent ici.',
+    'recv.addressLabel': 'Votre adresse',
+    'recv.copy': 'Copier l’adresse',
+    'recv.fingerprint': 'Empreinte : {0}',
+    'recv.outDir': 'Dossier de destination',
+    'recv.choose': 'Choisir',
+    'recv.trustNewLabel': 'Nouveaux appareils',
+    'recv.trustNew': 'Accepter les nouveaux appareils',
+    'recv.empty': 'Aucun envoi pour le moment.',
+
+    'dev.kicker': '03 · à proximité',
+    'dev.title': 'Appareils',
+    'dev.lede': 'Ce que la recherche réseau a trouvé, et ce qui est déjà jumelé.',
+    'dev.empty': 'Aucun appareil trouvé pour le moment - vérifiez que l’autre appareil est allumé et sur le même réseau.',
+    'dev.pairMark': '+',
+    'dev.pairTitle': 'Jumeler',
+    'dev.forgetMark': '×',
+    'dev.forgetTitle': 'Oublier',
+    'dev.online': 'En ligne à {0}',
+    'dev.offline': 'Pas en ligne actuellement',
+    'dev.paired': 'Jumelé',
+    'dev.notPaired': 'Pas encore jumelé',
+
+    'set.kicker': '04 · configuration',
+    'set.title': 'Réglages',
+    'set.lede': 'Ce que le nœud reçoit à l’ouverture - une modification ici le ferme et le rouvre.',
+    'set.name': 'Nom de l’appareil',
+    'set.nameHint': '(vide utilise le nom de l’ordinateur)',
+    'set.namePlaceholder': 'p. ex. Bureau',
+    'set.outDir': 'Dossier de destination',
+    'set.choose': 'Choisir',
+    'set.port': 'Port',
+    'set.portHint': '(0 = automatique)',
+    'set.behaviour': 'Comportement',
+    'set.trustNew': 'Accepter les nouveaux appareils',
+    'set.dedup': 'Reconnaître les blocs déjà présents',
+    'set.meetHost': 'Point de rencontre',
+    'set.meetHostHint': '(facultatif, pour joindre des appareils hors de ce réseau)',
+    'set.meetHostPlaceholder': 'adresse',
+    'set.meetPassPlaceholder': 'mot de passe',
+    'set.network': 'Réseau',
+    'set.portmap': 'Demander au routeur d’ouvrir un port',
+    'set.lang': 'Langue',
+    'set.version': 'Version {0}',
+    'set.keysAt': 'Les clés se trouvent à {0}',
+    'set.portmapMapped': 'Joignable de l’extérieur à {0} ({1})',
+    'set.portmapLost': 'L’ouverture de port a expiré et n’a pas pu être renouvelée.',
+    'set.portmapNone': 'Aucune des trois méthodes n’a fonctionné - normal sur de nombreux réseaux, ce n’est pas une erreur.',
+
+    'toast.copied': 'Copié dans le presse-papiers'
+  }
+};
+
+/** Uebersetzt einen Schluessel; {0}, {1} ... werden der Reihe nach ersetzt. */
+function t(lang, key, ...args) {
+  const table = I18N[lang] || I18N[DEFAULT_LANG];
+  let text = table[key];
+  if (text === undefined) text = I18N[DEFAULT_LANG][key];
+  if (text === undefined) return key;
+  args.forEach((value, i) => { text = text.split(`{${i}}`).join(String(value)); });
+  return text;
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { I18N, LANGS, DEFAULT_LANG, t };
+}

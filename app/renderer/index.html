@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' file: data:; style-src 'self' 'unsafe-inline'; font-src 'self' file:; script-src 'self'">
+<title>SNAPKEY</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="chrome">
+  <div class="chrome__brand">
+    <img class="chrome__mark" src="../assets/icon.png" alt="" width="23" height="23">
+    <span>snap<em>key</em></span>
+    <span class="chrome__by">Snap. Send. Done.</span>
+  </div>
+  <div class="chrome__right">
+    <div class="seg seg--lang" id="langPick"></div>
+    <div class="chrome__status" id="nodeStatus" data-state="pending">
+      <span class="led"></span><span class="chrome__statusText" id="nodeStatusText"></span>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+
+  <nav class="rail" id="rail">
+    <button class="rail__item is-active" data-view="send" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V5M12 5l-6 6M12 5l6 6"/><path d="M4 21h16" class="thin"/></svg>
+      <span data-i18n="nav.send">Send</span>
+    </button>
+    <button class="rail__item" data-view="receive" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v15M12 19l-6-6M12 19l6-6"/><path d="M4 21h16" class="thin"/></svg>
+      <span data-i18n="nav.receive">Receive</span>
+    </button>
+    <button class="rail__item" data-view="devices" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="18" r="2.2"/><circle cx="19" cy="18" r="2.2"/><path d="M12 7.2 7 15.8M12 7.2l5 8.6M7.2 18h9.6" class="thin"/></svg>
+      <span data-i18n="nav.devices">Devices</span>
+    </button>
+    <button class="rail__item" data-view="settings" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></svg>
+      <span data-i18n="nav.settings">Settings</span>
+    </button>
+    <div class="rail__mark">snapkey</div>
+  </nav>
+
+  <main class="stage" id="stage">
+
+    <!-- ============================= SENDEN ============================= -->
+    <section class="view is-active" id="view-send">
+      <div class="ghost">SND</div>
+      <div class="head">
+        <p class="kicker" data-i18n="send.kicker"></p>
+        <h1 data-i18n="send.title"></h1>
+        <p class="lede" data-i18n="send.lede"></p>
+      </div>
+
+      <div class="drop" id="drop" tabindex="0">
+        <div class="drop__inner">
+          <div class="drop__glyph" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M12 17V6M12 6 7.5 10.5M12 6l4.5 4.5"/><path d="M4 20h16" class="thin"/></svg>
+          </div>
+          <p class="drop__title" data-i18n="send.dropTitle"></p>
+          <p class="drop__hint"><span data-i18n="send.dropOr"></span>
+            <button class="linky" id="pickBtn" type="button" data-i18n="send.dropBrowse"></button></p>
+        </div>
+      </div>
+      <ul class="chips" id="fileList"></ul>
+
+      <div class="grid grid--2">
+        <label class="lbl">
+          <span data-i18n="send.device"></span>
+          <select class="field" id="sendDeviceSelect">
+            <option value="" data-i18n="send.deviceNone"></option>
+          </select>
+        </label>
+        <label class="lbl">
+          <span data-i18n="send.address"></span><em data-i18n="send.addressHint"></em>
+          <input class="field mono" id="sendAddress" type="text" data-i18n-ph="send.addressPlaceholder" spellcheck="false">
+        </label>
+      </div>
+
+      <div class="act">
+        <button class="btn btn--go" id="sendStart" type="button" data-i18n="send.start"></button>
+        <button class="btn btn--ghost" id="sendClear" type="button" data-i18n="send.clear"></button>
+        <span class="sumline is-on" id="sendSum"></span>
+      </div>
+
+      <div id="sendJobs" class="jobs"></div>
+    </section>
+
+    <!-- ============================ EMPFANGEN =========================== -->
+    <section class="view" id="view-receive">
+      <div class="ghost">RCV</div>
+      <div class="head">
+        <p class="kicker" data-i18n="recv.kicker"></p>
+        <h1 data-i18n="recv.title"></h1>
+        <p class="lede" data-i18n="recv.lede"></p>
+      </div>
+
+      <div class="beacon">
+        <div>
+          <div class="beacon__label" data-i18n="recv.addressLabel"></div>
+          <div class="beacon__code" id="myAddress"></div>
+          <p class="hint" id="myFingerprint"></p>
+          <div class="beacon__actions">
+            <button class="btn btn--go" id="copyAddress" type="button" data-i18n="recv.copy"></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid--2">
+        <label class="lbl lbl--wide">
+          <span data-i18n="recv.outDir"></span>
+          <div class="row">
+            <input class="field" id="recvOutDir" type="text" readonly spellcheck="false">
+            <button class="btn btn--ghost btn--sm" id="recvOutPick" type="button" data-i18n="recv.choose"></button>
+          </div>
+        </label>
+      </div>
+
+      <div class="lbl lbl--switches" style="margin-top:18px">
+        <span data-i18n="recv.trustNewLabel"></span>
+        <label class="switch"><input type="checkbox" id="recvTrustNew"><i></i><span data-i18n="recv.trustNew"></span></label>
+      </div>
+
+      <div id="recvJobs" class="jobs"></div>
+      <p class="empty" id="recvEmpty" data-i18n="recv.empty"></p>
+    </section>
+
+    <!-- ============================= GERAETE ============================ -->
+    <section class="view" id="view-devices">
+      <div class="ghost">DEV</div>
+      <div class="head">
+        <p class="kicker" data-i18n="dev.kicker"></p>
+        <h1 data-i18n="dev.title"></h1>
+        <p class="lede" data-i18n="dev.lede"></p>
+      </div>
+
+      <div class="cards" id="deviceList"></div>
+      <p class="empty" id="deviceEmpty" data-i18n="dev.empty"></p>
+    </section>
+
+    <!-- =========================== EINSTELLUNGEN ========================= -->
+    <section class="view" id="view-settings">
+      <div class="ghost">SET</div>
+      <div class="head">
+        <p class="kicker" data-i18n="set.kicker"></p>
+        <h1 data-i18n="set.title"></h1>
+        <p class="lede" data-i18n="set.lede"></p>
+      </div>
+
+      <div class="grid grid--2">
+        <label class="lbl">
+          <span data-i18n="set.name"></span><em data-i18n="set.nameHint"></em>
+          <input class="field" id="setName" type="text" data-i18n-ph="set.namePlaceholder" spellcheck="false">
+        </label>
+        <label class="lbl">
+          <span data-i18n="set.outDir"></span>
+          <div class="row">
+            <input class="field" id="setOutDir" type="text" readonly spellcheck="false">
+            <button class="btn btn--ghost btn--sm" id="setOutPick" type="button" data-i18n="set.choose"></button>
+          </div>
+        </label>
+
+        <label class="lbl">
+          <span data-i18n="set.port"></span><em data-i18n="set.portHint"></em>
+          <input class="field mono" id="setPort" type="number" min="0" max="65535" step="1">
+        </label>
+        <div class="lbl lbl--switches">
+          <span data-i18n="set.behaviour"></span>
+          <label class="switch"><input type="checkbox" id="setTrustNew"><i></i><span data-i18n="set.trustNew"></span></label>
+          <label class="switch"><input type="checkbox" id="setDedup"><i></i><span data-i18n="set.dedup"></span></label>
+        </div>
+
+        <label class="lbl lbl--wide">
+          <span data-i18n="set.meetHost"></span><em data-i18n="set.meetHostHint"></em>
+          <div class="row">
+            <input class="field mono" id="setMeetHost" type="text" data-i18n-ph="set.meetHostPlaceholder" spellcheck="false">
+            <input class="field field--sm mono" id="setMeetPort" type="number" min="1" max="65535" step="1">
+            <input class="field field--sm mono" id="setMeetPass" type="password" data-i18n-ph="set.meetPassPlaceholder" spellcheck="false">
+          </div>
+          <p class="hint" id="meetNote"></p>
+        </label>
+
+        <div class="lbl lbl--switches">
+          <span data-i18n="set.network"></span>
+          <label class="switch"><input type="checkbox" id="setPortmap"><i></i><span data-i18n="set.portmap"></span></label>
+          <p class="hint" id="portmapNote"></p>
+        </div>
+        <label class="lbl">
+          <span data-i18n="set.lang"></span>
+          <div class="seg" id="langPickSettings"></div>
+        </label>
+      </div>
+
+      <footer class="credits">
+        <div class="credits__row">
+          <span class="credits__mark">snapkey</span>
+          <span class="credits__ver" id="appVersion"></span>
+        </div>
+        <p class="credits__law" id="keysNote"></p>
+      </footer>
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

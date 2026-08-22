@@ -8,6 +8,10 @@
     "snapkey": "bin/snapkey.js"
   },
   "scripts": {
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test \"test/**/*.test.js\"",
+    "app": "electron app/main.js"
+  },
+  "devDependencies": {
+    "electron": "^43.4.1"
   }
 }
