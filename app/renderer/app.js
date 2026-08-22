@@ -39,7 +39,17 @@ const state = {
   chatUnread: new Set(),     // Anschriften mit ungesehener Nachricht, waehrend man bei einem anderen Chat stand
   chatSending: false,
 
-  history: []               // entry[] aus history:list, neueste zuerst
+  history: [],              // entry[] aus history:list, neueste zuerst
+
+  update: {
+    can: null,        // {ok, reason?} von update:can - ob der Tausch technisch moeglich waere
+    result: null,      // {ok, current, latest, newer, url} oder {ok:false, reason} von update:check
+    busy: false,        // waehrend check() oder fetch() laeuft
+    phase: null,          // 'download' | 'unpack' | null, waehrend fetch() laeuft
+    pct: 0,                 // Ladefortschritt in Prozent
+    ready: false,             // prepare() ist durch, update:apply kann kommen
+    fail: null                 // {reason, message} vom letzten fehlgeschlagenen fetch()
+  }
 };
 
 const T = (key, ...args) => t(state.lang, key, ...args);
@@ -532,6 +542,140 @@ async function setSetting(patch) {
   renderSettingsNotes();
 }
 
+/* ------------------------------ Selbstupdate ------------------------------ */
+
+// canReplace()/prepare() melden denselben kleinen Satz an Gruenden, warum
+// es nicht ginge - hier auf je einen Satz abgebildet. Ein unbekannter
+// Grund (z. B. ein Netzfehler) faellt auf die allgemeine Fehlermeldung
+// samt der rohen Angabe zurueck, statt zu schweigen.
+function updateReasonText(reason, message) {
+  switch (reason) {
+    case 'nicht-eingerichtet': return T('set.updateNotConfigured');
+    case 'platform': return T('set.updateReasonPlatform');
+    case 'dev': return T('set.updateReasonDev');
+    case 'no-bundle':
+    case 'read-only': return T('set.updateReasonBundle');
+    case 'kein-anhang': return T('set.updateReasonNoAsset');
+    case 'version':
+    case 'size': return T('set.updateReasonBad');
+    default: return T('set.updateError', message || reason || '?');
+  }
+}
+
+function renderUpdate() {
+  const u = state.update;
+  const checkBtn = $('#updateCheckBtn');
+  const fetchBtn = $('#updateFetchBtn');
+  const applyBtn = $('#updateApplyBtn');
+  const meter = $('#updateMeter');
+  const note = $('#updateNote');
+
+  checkBtn.disabled = u.busy;
+  fetchBtn.hidden = true;
+  applyBtn.hidden = true;
+  meter.hidden = true;
+  note.removeAttribute('data-tone');
+
+  // Waehrend fetch() laeuft, zaehlt nur der Fortschritt - alles andere
+  // (vorheriges Ergebnis, alter Fehler) wartet, bis es durch ist.
+  if (u.busy && u.phase) {
+    meter.hidden = false;
+    $('#updateMeterFill').style.width = `${u.pct}%`;
+    note.textContent = u.phase === 'unpack' ? T('set.updateUnpacking') : T('set.updateDownloading', u.pct);
+    return;
+  }
+
+  if (u.ready) {
+    applyBtn.hidden = false;
+    note.textContent = T('set.updateReady', (u.result && u.result.latest) || '');
+    note.dataset.tone = 'good';
+    return;
+  }
+
+  if (u.fail) {
+    fetchBtn.hidden = false;
+    note.textContent = updateReasonText(u.fail.reason, u.fail.message);
+    note.dataset.tone = 'bad';
+    return;
+  }
+
+  if (!u.result) {
+    note.textContent = '';
+    return;
+  }
+
+  if (!u.result.ok) {
+    note.textContent = updateReasonText(u.result.reason, u.result.message);
+    return;
+  }
+
+  if (!u.result.newer) {
+    note.textContent = T('set.updateNone');
+    return;
+  }
+
+  // Eine neuere Fassung ist da - laesst sie sich hier ueberhaupt
+  // einspielen? Wenn nicht (kein Mac, aus dem Quelltext, Paket
+  // schreibgeschuetzt), steht das dazu, statt den Laden-Knopf zu
+  // zeigen und ihn dann scheitern zu lassen.
+  if (u.can && !u.can.ok) {
+    note.textContent = `${T('set.updateAvailable', u.result.latest)} ${updateReasonText(u.can.reason)}`;
+    return;
+  }
+
+  fetchBtn.hidden = false;
+  note.textContent = T('set.updateAvailable', u.result.latest);
+  note.dataset.tone = 'good';
+}
+
+async function onUpdateCheck() {
+  if (state.update.busy) return;
+  state.update.busy = true;
+  state.update.result = null;
+  state.update.fail = null;
+  state.update.ready = false;
+  renderUpdate();
+
+  state.update.result = await api.updateCheck();
+  state.update.busy = false;
+  renderUpdate();
+}
+
+async function onUpdateFetch() {
+  if (state.update.busy) return;
+  state.update.busy = true;
+  state.update.phase = 'download';
+  state.update.pct = 0;
+  state.update.fail = null;
+  renderUpdate();
+
+  const res = await api.updateFetch();
+  state.update.busy = false;
+  state.update.phase = null;
+  if (res.ok) state.update.ready = true;
+  else state.update.fail = res;
+  renderUpdate();
+}
+
+async function onUpdateApply() {
+  $('#updateApplyBtn').disabled = true;
+  const res = await api.updateApply();
+  if (!res.ok) {
+    // Bei Erfolg beendet sich die App gleich von selbst (siehe main.js)
+    // - erst bei einem Fehlschlag lohnt sich noch ein neuer Render.
+    state.update.ready = false;
+    state.update.fail = res;
+    $('#updateApplyBtn').disabled = false;
+    renderUpdate();
+  }
+}
+
+function handleUpdateProgress(e) {
+  state.update.phase = e.phase;
+  state.update.pct = (e.phase === 'download' && e.total) ? Math.min(100, Math.round((e.done / e.total) * 100)) : state.update.pct;
+  renderUpdate();
+}
+
 /* --------------------------------- Verlauf -------------------------------- */
 
 function historySummary(entry) {
@@ -663,6 +807,7 @@ function renderAll() {
   renderDeviceSelect();
   renderSettingsForm();
   renderSettingsNotes();
+  renderUpdate();
   renderFileList();
   renderJobs();
   renderMessagesView();
@@ -965,6 +1110,10 @@ function wireSettings() {
   $('#setPortmap').addEventListener('change', () => setSetting({ portmap: $('#setPortmap').checked }));
   $('#setTray').addEventListener('change', () => setSetting({ tray: $('#setTray').checked }));
   $('#setNotify').addEventListener('change', () => setSetting({ notify: $('#setNotify').checked }));
+
+  $('#updateCheckBtn').addEventListener('click', onUpdateCheck);
+  $('#updateFetchBtn').addEventListener('click', onUpdateFetch);
+  $('#updateApplyBtn').addEventListener('click', onUpdateApply);
 }
 
 function wireMessages() {
@@ -1010,9 +1159,17 @@ async function init() {
   api.onEvent(handleNodeEvent);
   api.onSendProgress(handleSendProgress);
   api.onHistoryChanged(refreshHistory);
+  api.onUpdateProgress(handleUpdateProgress);
   api.onOpenView((view) => activateView(view));
 
   applyLang();
+
+  // Ob sich die App ueberhaupt selbst ersetzen liesse (Mac, gepackt,
+  // beschreibbar) steht schon vor dem ersten Klick auf "Laden" fest -
+  // renderUpdate() zeigt den Grund gleich mit an, statt erst beim
+  // Fehlschlag.
+  state.update.can = await api.updateCan();
+  renderUpdate();
 }
 
 init().catch((err) => {

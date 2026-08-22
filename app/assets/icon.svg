@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="ground" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#222e27"/>
+      <stop offset="0.55" stop-color="#131a16"/>
+      <stop offset="1" stop-color="#0a0d0b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.24" cy="0.16" r="0.85">
+      <stop offset="0" stop-color="#c6f24e" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#c6f24e" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="scales" width="88" height="52" patternUnits="userSpaceOnUse">
+      <g fill="none" stroke="#c6f24e" stroke-opacity="0.075" stroke-width="2">
+        <path d="M-4 52C-4 24 8 8 22 8s26 16 26 44"/>
+        <path d="M40 52c0-28 12-44 26-44s26 16 26 44"/>
+      </g>
+    </pattern>
+    <clipPath id="tile">
+      <rect x="72" y="72" width="880" height="880" rx="200" ry="200"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#tile)">
+    <rect x="72" y="72" width="880" height="880" fill="url(#ground)"/>
+    <rect x="72" y="72" width="880" height="880" fill="url(#scales)"/>
+    <rect x="72" y="72" width="880" height="880" fill="url(#glow)"/>
+  </g>
+  <rect x="72" y="72" width="880" height="880" rx="200" ry="200"
+        fill="none" stroke="#c6f24e" stroke-opacity="0.22" stroke-width="3"/>
+
+  <!-- Krokodilkopf im Profil, gleiche Zeichnung wie in der Oberflaeche -->
+  <g transform="translate(135 159) scale(29.7)"
+     fill="none" stroke="#c6f24e" stroke-width="1.15"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.6 11 Q2.8 6.4 6.8 6.4 Q9.6 6.4 10.4 9 L11 10.8 L20.8 11.3 Q22.8 11.4 22.8 13"/>
+    <path d="M22.8 13 L20.4 14.8 L18 13 L15.6 14.8 L13.2 13 L10.8 14.8 L8.4 13.2 L6.6 15"/>
+    <path d="M6.6 15 Q4 15.6 2.6 17.4"/>
+    <path d="M2.6 11 L2.6 17.4"/>
+    <circle cx="6.4" cy="9" r="1.15" fill="#c6f24e" stroke="none"/>
+  </g>
+</svg>

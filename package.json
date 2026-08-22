@@ -4,14 +4,49 @@
   "private": true,
   "description": "Dateien und Nachrichten verschlüsselt direkt zwischen zwei Geräten übertragen, ohne Server und ohne Konto",
   "license": "MIT",
+  "main": "app/main.js",
   "bin": {
     "snapkey": "bin/snapkey.js"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
-    "app": "electron app/main.js"
+    "app": "electron app/main.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --mac"
   },
   "devDependencies": {
-    "electron": "^43.4.1"
+    "electron": "^43.4.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "de.snapkey.app",
+    "productName": "SNAPKEY",
+    "files": [
+      "app/**/*",
+      "src/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "build"
+    },
+    "mac": {
+      "icon": "app/assets/icon.icns",
+      "category": "public.app-category.utilities",
+      "target": [
+        "dmg"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "icon": "app/assets/icon.icns",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "writeUpdateInfo": false
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "",
+      "repo": "",
+      "releaseType": "release"
+    }
   }
 }

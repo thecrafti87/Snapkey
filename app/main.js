@@ -24,6 +24,7 @@ const nodeMod = require('../src/node/node');
 const identity = require('../src/core/identity');
 const meetServerMod = require('../src/meet/server');
 const storeMod = require('../src/node/store');
+const selfupdate = require('./selfupdate');
 const { t } = require('./renderer/i18n');
 
 let win = null;
@@ -32,6 +33,12 @@ let nodeError = null;
 let quitting = false;
 let history = null;
 let tray = null;
+
+// Was prepare() zuletzt geladen und geprueft hat, bis update:apply es
+// abholt oder ein neuer prepare()-Lauf es ersetzt - die Oberflaeche
+// schickt nicht das ganze Objekt zurueck, nur den Befehl, es
+// einzuspielen.
+let preparedUpdate = null;
 
 // Ordnet ein hereinkommendes "from" (aus node:event) der beglaubigten
 // Anschrift und den zwischendurch gesehenen Werten zu - erst bei
@@ -523,6 +530,30 @@ ipcMain.handle('shell:reveal', (_e, target) => {
   } catch {
     return false;
   }
+});
+
+/* ------------------------------ Selbstupdate ------------------------------ */
+
+ipcMain.handle('update:can', () => selfupdate.canReplace());
+
+ipcMain.handle('update:check', () => selfupdate.check(selfupdate.configuredRepo()));
+
+ipcMain.handle('update:fetch', async () => {
+  preparedUpdate = null;
+  const res = await selfupdate.prepare(selfupdate.configuredRepo(), (e) => {
+    if (win) win.webContents.send('update:progress', e);
+  });
+  if (res.ok) preparedUpdate = res;
+  // "staged"/"work"/"bundle" sind nur fuer install() gedacht - der
+  // Renderer bekommt davon nichts zu sehen, nur ob es geklappt hat.
+  return { ok: res.ok, version: res.version, reason: res.reason, message: res.message };
+});
+
+ipcMain.handle('update:apply', () => {
+  if (!preparedUpdate) return { ok: false, message: 'Nichts zum Einspielen vorbereitet - erst laden.' };
+  const res = selfupdate.install(preparedUpdate);
+  preparedUpdate = null;
+  return res;
 });
 
 /* -------------------------------- Start/Ende -------------------------------- */

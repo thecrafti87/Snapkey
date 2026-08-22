@@ -526,7 +526,63 @@ SNAPKEY_HOME=~/.snapkey-b npm run app
 
 Ehrlich gesagt, und nicht verschwiegen:
 
-- **Kein Selbstupdate** — eine neue Fassung bedeutet neu bauen und neu
-  starten, kein Blick auf veröffentlichte Fassungen.
-- **Kein fertiges Paket** — es gibt kein `.dmg`, `.exe` oder `.AppImage` zum
-  Weitergeben, nur `npm run app` aus dem Quelltext heraus.
+- **Nur macOS** — ein Windows- oder Linux-Paket gibt es nicht, nur das DMG
+  für Apple Silicon und Intel.
+- **Kein Veröffentlichungsort eingetragen** — `npm run dist` baut ein
+  echtes, startfähiges Paket, aber wohin damit veröffentlicht wird (welches
+  GitHub-Repo die Fassungen trägt), ist noch nicht entschieden. Das
+  Selbstupdate sagt das ehrlich, statt stillschweigend nichts zu tun oder
+  gegen ein leeres Ziel zu fragen — siehe „Installieren und aktualisieren"
+  unten.
+
+## Installieren und aktualisieren
+
+```bash
+npm run dist    # app/**, src/** zu einem .app-Paket und einem DMG bauen
+npm run pack    # nur das .app-Paket, ohne DMG - fuer einen schnellen Testbau
+```
+
+Das fertige DMG landet unter `build/SNAPKEY-<Fassung>-<arch>.dmg` (`arm64`
+auf Apple Silicon, `x64` auf Intel) — `build/` selbst ist ausgeschlossen aus
+der Versionsverwaltung.
+
+### Ohne Apple-Developer-ID — die Gatekeeper-Meldung
+
+Das Paket ist **nicht signiert**, es gibt keine Apple-Developer-ID dafür.
+Beim ersten Öffnen aus dem DMG heraus meldet macOS deshalb Bedenken — das ist
+erwartet, kein Zeichen für ein kaputtes Paket. Ein Rechtsklick → Öffnen hilft
+dagegen **seit macOS 15 nicht mehr**; der Weg über die Oberfläche bleibt:
+
+> Systemeinstellungen → Datenschutz & Sicherheit → ganz unten „Trotzdem
+> öffnen" (erscheint erst, nachdem der erste Öffnen-Versuch einmal
+> abgebrochen wurde).
+
+Wer lieber die Kommandozeile nimmt, entfernt das Quarantäne-Merkmal direkt:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/SNAPKEY.app
+```
+
+### Das Selbstupdate
+
+`app/selfupdate.js` folgt derselben Machart wie das Paket selbst: Fassungen
+über die GitHub-API abfragen, das zur eigenen Architektur passende DMG
+laden, einhängen, die `CFBundleShortVersionString` **im eingehängten
+Bündel** prüfen — bevor irgendetwas Bestehendes angefasst wird —, und dann
+über ein **abgekoppeltes Tauschskript** einspielen, das die alte Fassung
+beiseitelegt und bei einem Fehlschlag zurückholt. Warum abgekoppelt: das
+eigene `.app`-Paket ist die Datei, aus der der eigene Prozess gerade läuft —
+sie sich selbst überschreiben zu lassen, während man noch aus ihr heraus
+läuft, ist ein Wettlauf mit dem eigenen Beenden.
+
+In den Einstellungen, eigener Abschnitt „Fassung": die laufende Fassung,
+ein Knopf „Nach Aktualisierung sehen"; ist eine neuere da, nennt er sie und
+macht Platz für „Laden" mit Fortschritt in Prozent, danach „Neu starten und
+übernehmen". Ist keine neuere da oder ist noch nichts eingerichtet, steht
+das in einem Satz da, statt schweigend nichts zu tun.
+
+**Das funktioniert erst, wenn ein Veröffentlichungsort eingetragen ist** —
+`build.publish.owner`/`.repo` in `package.json` stehen derzeit bewusst leer,
+wohin veröffentlicht wird, ist noch nicht entschieden. Bis dahin liefert
+„Nach Aktualisierung sehen" den Satz, dass noch nichts eingerichtet ist,
+ganz ohne eine Netzanfrage ins Leere zu schicken.

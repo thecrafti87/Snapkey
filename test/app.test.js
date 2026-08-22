@@ -169,7 +169,8 @@ test('main.js spricht genau die vereinbarten IPC-Kanaele an', () => {
   const erwartet = [
     'node:state', 'node:peers', 'node:settings', 'node:setSetting',
     'node:send', 'node:pair', 'node:forget',
-    'dialog:pickFiles', 'dialog:pickFolder', 'fs:stat', 'clipboard:write', 'shell:reveal'
+    'dialog:pickFiles', 'dialog:pickFolder', 'fs:stat', 'clipboard:write', 'shell:reveal',
+    'update:can', 'update:check', 'update:fetch', 'update:apply'
   ];
   for (const kanal of erwartet) {
     assert.ok(main.includes(`'${kanal}'`), `Kanal fehlt in main.js: ${kanal}`);

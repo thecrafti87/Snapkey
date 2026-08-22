@@ -36,6 +36,11 @@ contextBridge.exposeInMainWorld('snapkey', {
   copy: (text) => ipcRenderer.invoke('clipboard:write', text),
   reveal: (target) => ipcRenderer.invoke('shell:reveal', target),
 
+  updateCan: () => ipcRenderer.invoke('update:can'),
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateFetch: () => ipcRenderer.invoke('update:fetch'),
+  updateApply: () => ipcRenderer.invoke('update:apply'),
+
   // Seit Electron 32 liefert File.path nichts mehr - der echte Pfad
   // einer per Drag & Drop abgelegten Datei kommt nur noch hierueber.
   pathForFile: (file) => {
@@ -62,6 +67,12 @@ contextBridge.exposeInMainWorld('snapkey', {
     const handler = () => fn();
     ipcRenderer.on('history:changed', handler);
     return () => ipcRenderer.removeListener('history:changed', handler);
+  },
+
+  onUpdateProgress: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('update:progress', handler);
+    return () => ipcRenderer.removeListener('update:progress', handler);
   },
 
   // Ruft von aussen an: Menueleistensymbol oder eine angeklickte
