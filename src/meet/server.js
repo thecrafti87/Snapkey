@@ -10,6 +10,15 @@
    (`reach`). Sobald beide da sind, schaltet die Stelle die beiden
    Verbindungen zusammen und deutet danach kein einziges Byte mehr.
 
+   Die Vermittlung ist zweistufig: 'reach' bekommt zuerst nur die
+   Auskunft ('found' mit der optionalen Direktadresse der Gegenstelle,
+   oder 'nobody') - noch OHNE die Leitung zusammenzuschalten. Der Sucher
+   kann damit zuerst selbst einen direkten Weg probieren und erst bei
+   Fehlschlag mit 'join' doch die Umleitung nehmen. Sagt er stattdessen
+   'cancel' (der direkte Weg hat geklappt) oder legt er einfach auf,
+   bleibt die Anmeldung der Gegenstelle bestehen - sie ist weiterhin
+   erreichbar. Erst 'join' verbraucht sie.
+
    WICHTIG ZUR SICHERHEIT: Die Vermittlungsstelle beglaubigt niemanden.
    Wer sich unter einer fremden Anschrift anmeldet, erreicht damit
    hoechstens, dass die echte Gegenstelle nicht mehr erreichbar ist -
@@ -19,7 +28,8 @@
    Das Passwort ist der Schutz gegen genau diese Belegung einer
    Anschrift, nicht gegen Mitlesen - die Stelle sieht nach der
    Vermittlung ohnehin nur noch verschluesselte Bytes und weiss nicht
-   einmal, dass es welche sind.
+   einmal, dass es welche sind. Dasselbe gilt fuer `direct`: die Stelle
+   reicht es nur durch, ohne es zu pruefen oder ihm zu glauben.
    ================================================================= */
 
 const net = require('net');
@@ -87,6 +97,14 @@ function start({ port = DEFAULT_PORT, pass = '', idleTimeout = DEFAULT_IDLE_MS, 
     let meineAnschrift = null;
     let meinToken = null;
 
+    // Zwischen 'found' und der Entscheidung ('join'/'cancel') haengt
+    // diese Verbindung in der Schwebe - festgehalten wird, wessen
+    // Anmeldung gerade zugesagt wurde, damit 'join' sie noch findet
+    // (und nicht eine, die inzwischen laengst durch eine neuere
+    // ersetzt wurde).
+    let wartetAufEntscheidung = null;
+    let entscheidungsTimer = null;
+
     const send = (msg) => {
       if (!socket.destroyed) socket.write(frame.pack(frame.control(msg)));
     };
@@ -97,10 +115,15 @@ function start({ port = DEFAULT_PORT, pass = '', idleTimeout = DEFAULT_IDLE_MS, 
     socket.on('close', () => {
       offen.delete(socket);
       clearTimeout(idle);
+      clearTimeout(entscheidungsTimer);
 
       // Nur loeschen, wenn wirklich noch die eigene Anmeldung dort
       // steht - eine neuere koennte die eigene laengst verdraengt
-      // haben, und die soll bestehen bleiben.
+      // haben, und die soll bestehen bleiben. Eine Anmeldung, die eine
+      // ANDERE Verbindung gehoert (hier nur ueber 'reach' gefunden),
+      // wird beim Zumachen dieser Verbindung nicht angefasst - genau
+      // das laesst die Gegenstelle nach einem 'cancel' oder einem
+      // formlosen Auflegen weiter erreichbar.
       if (meineAnschrift && registrations.get(meineAnschrift)?.token === meinToken) {
         registrations.delete(meineAnschrift);
         onEvent({ type: 'gone', address: meineAnschrift });
@@ -151,9 +174,9 @@ function start({ port = DEFAULT_PORT, pass = '', idleTimeout = DEFAULT_IDLE_MS, 
 
           meineAnschrift = msg.address;
           meinToken = Symbol('meet-registration');
-          registrations.set(meineAnschrift, { token: meinToken, socket });
+          registrations.set(meineAnschrift, { token: meinToken, socket, direct: msg.direct || null });
 
-          onEvent({ type: 'registered', address: meineAnschrift });
+          onEvent({ type: 'registered', address: meineAnschrift, direct: msg.direct || null });
           send(protocol.okMsg());
           continue;
         }
@@ -175,17 +198,59 @@ function start({ port = DEFAULT_PORT, pass = '', idleTimeout = DEFAULT_IDLE_MS, 
             return;
           }
 
-          // Die Anmeldung ist damit verbraucht - ein zweites 'reach'
-          // auf dieselbe Anschrift findet niemanden mehr, bis sich
-          // wieder wer meldet.
-          registrations.delete(msg.address);
-          verbindeDurch(socket, partner.socket, msg.address);
+          // Noch NICHT verbrauchen: erst 'found' schicken und auf die
+          // Entscheidung warten. Das erlaubt dem Sucher, zuerst selbst
+          // einen direkten Weg zu probieren, ohne dass die Anmeldung
+          // der Gegenstelle dabei schon weg waere.
+          wartetAufEntscheidung = { address: msg.address, token: partner.token };
+          send(protocol.foundMsg(partner.direct));
+          onEvent({ type: 'found', address: msg.address });
+
+          entscheidungsTimer = setTimeout(() => socket.destroy(), idleTimeout);
+          if (entscheidungsTimer.unref) entscheidungsTimer.unref();
+          continue;
+        }
+
+        if (msg.t === 'join') {
+          if (!wartetAufEntscheidung) { socket.destroy(); return; }
+          clearTimeout(entscheidungsTimer);
+
+          const { address, token } = wartetAufEntscheidung;
+          wartetAufEntscheidung = null;
+
+          // Zwischen 'found' und 'join' kann die Gegenstelle abgehauen
+          // oder sich neu angemeldet haben - dann gilt die Zusage von
+          // eben nicht mehr, und es gibt hier auch keine zweite Chance:
+          // ein neues 'reach' muesste es noch einmal probieren.
+          const partner = registrations.get(address);
+          if (!partner || partner.token !== token) {
+            send(protocol.nobodyMsg());
+            onEvent({ type: 'nobody', address });
+            socket.destroy();
+            return;
+          }
+
+          registrations.delete(address);
+          verbindeDurch(socket, partner.socket, address);
           return;
         }
 
-        // 'ok', 'joined', 'nobody', 'denied', 'pong' sind Antworten der
-        // Stelle, keine Anfragen an sie - von einem Klienten hier zu
-        // bekommen ist Unfug.
+        if (msg.t === 'cancel') {
+          if (!wartetAufEntscheidung) { socket.destroy(); return; }
+          clearTimeout(entscheidungsTimer);
+
+          // Die Anmeldung der Gegenstelle wird hier bewusst NICHT
+          // angefasst - "danke, ich gehe direkt" heisst gerade, dass
+          // sie fuer den naechsten Sucher weiter erreichbar bleiben soll.
+          onEvent({ type: 'cancelled', address: wartetAufEntscheidung.address });
+          wartetAufEntscheidung = null;
+          socket.destroy();
+          return;
+        }
+
+        // 'ok', 'joined', 'found', 'nobody', 'denied', 'pong' sind
+        // Antworten der Stelle, keine Anfragen an sie - von einem
+        // Klienten hier zu bekommen ist Unfug.
         socket.destroy();
         return;
       }

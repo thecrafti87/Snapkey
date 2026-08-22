@@ -18,6 +18,7 @@ const chunks = require('../core/chunks');
 const tcp = require('../net/tcp');
 const meetClient = require('../net/meet');
 const discovery = require('../net/discovery');
+const portmap = require('../net/portmap');
 const store = require('./store');
 
 // Wie lange nach einem gescheiterten Anlauf am Treffpunkt gewartet wird,
@@ -37,6 +38,17 @@ function warten(ms, signal) {
   });
 }
 
+/** "host:port" auseinandernehmen - der Doppelpunkt trennt von hinten wegen IPv6. */
+function parseHostPort(text) {
+  if (!text || typeof text !== 'string') return null;
+  const i = text.lastIndexOf(':');
+  if (i === -1) return null;
+  const host = text.slice(0, i);
+  const port = Number(text.slice(i + 1));
+  if (!host || !Number.isFinite(port) || port <= 0) return null;
+  return { host, port };
+}
+
 /**
  * `trustNew`  ob eine unbekannte Gegenstelle beim ersten Mal
  *             angenommen wird. Aus, solange nichts anderes gesagt ist:
@@ -45,6 +57,13 @@ function warten(ms, signal) {
  *             Knoten zusaetzlich zum eigenen Zuhoerer an einem
  *             Treffpunkt an, fuer Gegenstellen, die er im eigenen Netz
  *             nicht erreicht.
+ * `portmap`   aus, solange nichts anderes gesagt ist. Ist es an,
+ *             versucht der Knoten nach dem Zuhoeren, seinen Router um
+ *             eine Portfreigabe zu bitten (`net/portmap.js`) - klappt
+ *             das, ist er unter `node.external` direkt von aussen
+ *             erreichbar, und meldet das bei `meet` gleich als `direct`
+ *             mit. Klappt es nicht (der Normalfall in vielen Netzen),
+ *             laeuft alles wie ohne diese Option weiter.
  */
 async function open({
   home,
@@ -54,6 +73,7 @@ async function open({
   trustNew = false,
   announce = true,
   meet = null,
+  portmap: mitPortfreigabe = false,
   // Blockwiedererkennung: was schon irgendwo im Zielordner liegt, wird
   // nicht noch einmal uebertragen. Abschaltbar, weil das Durchlesen des
   // Zielordners bei sehr grossen Ablagen spuerbar sein kann.
@@ -142,6 +162,37 @@ async function open({
     })
     : null;
 
+  /* --------------------------- Portfreigabe --------------------------- */
+
+  // `external` ist bewusst ein `let`, keine Konstante: eine Erneuerung
+  // kann den aussen sichtbaren Port aendern, und wer nach `node.external`
+  // fragt oder sich am Treffpunkt anmeldet, soll immer den aktuellen
+  // Stand sehen.
+  let external = null;
+  let portmapHandle = null;
+
+  if (mitPortfreigabe) {
+    portmapHandle = await portmap.open({
+      port: server.port,
+      onEvent: (e) => {
+        if (e.type === 'renewed') {
+          external = e.external;
+          onEvent({ type: 'portmap', state: 'mapped', external, method: e.method });
+        } else if (e.type === 'lost') {
+          external = null;
+          onEvent({ type: 'portmap', state: 'lost', external: null, method: e.method });
+        }
+      }
+    });
+
+    if (portmapHandle) {
+      external = portmapHandle.external;
+      onEvent({ type: 'portmap', state: 'mapped', external, method: portmapHandle.method });
+    } else {
+      onEvent({ type: 'portmap', state: 'none', external: null, method: null });
+    }
+  }
+
   /* --------------------- Am Treffpunkt erreichbar --------------------- */
 
   const meetAbbruch = meet ? new AbortController() : null;
@@ -162,6 +213,10 @@ async function open({
         transport = await meetClient.register(meet.host, meet.port, {
           address: me.address,
           pass: meet.pass,
+          // Der jeweils aktuelle Stand - eine Erneuerung koennte den
+          // aussen sichtbaren Port seit der letzten Anmeldung geaendert
+          // haben.
+          direct: external ? `${external.host}:${external.port}` : undefined,
           signal: meetAbbruch.signal
         });
       } catch (err) {
@@ -216,9 +271,40 @@ async function open({
     const files = chunks.scan(paths);
     if (!files.length) throw new Error('Nichts zu senden');
 
-    const transport = ziel.meet
-      ? await meetClient.reach(ziel.meet.host, ziel.meet.port, { address, pass: ziel.meet.pass })
-      : await tcp.connect(ziel.host, ziel.port);
+    // route: 'lan' (kein Treffpunkt - eigenes Netz oder --an), 'direct'
+    // (ueber den Treffpunkt vermittelt, dann aber selbst direkt
+    // verbunden) oder 'relay' (tatsaechlich ueber die Umleitung).
+    let transport;
+    let route;
+
+    if (ziel.meet) {
+      const auskunft = await meetClient.lookup(ziel.meet.host, ziel.meet.port, { address, pass: ziel.meet.pass });
+
+      const direktZiel = parseHostPort(auskunft.direct);
+      if (direktZiel) {
+        try {
+          transport = await tcp.connect(direktZiel.host, direktZiel.port, { timeout: 4000 });
+        } catch {
+          // Der direkte Weg hat nicht geklappt - es bleibt bei der
+          // Umleitung ueber den Treffpunkt, kein Grund zum Abbrechen.
+          transport = null;
+        }
+      }
+
+      if (transport) {
+        auskunft.cancel();
+        route = 'direct';
+      } else {
+        transport = await auskunft.join();
+        route = 'relay';
+      }
+    } else {
+      transport = await tcp.connect(ziel.host, ziel.port);
+      route = 'lan';
+    }
+
+    onProgress({ type: 'route', route });
+
     try {
       const res = await session.send(transport, {
         identity: me,
@@ -247,7 +333,7 @@ async function open({
           onProgress(e);
         }
       });
-      return { ...res, files: files.length, bytes: files.reduce((n, f) => n + f.size, 0) };
+      return { ...res, route, files: files.length, bytes: files.reduce((n, f) => n + f.size, 0) };
     } finally {
       transport.close();
     }
@@ -259,6 +345,7 @@ async function open({
     outDir,
     store: box,
 
+    get external() { return external; },
     get peers() { return beacon ? beacon.peers : []; },
     find: (hint) => (beacon ? beacon.find(hint) : null),
 
@@ -277,6 +364,8 @@ async function open({
         if (meetLaufend) meetLaufend.close();
         await meetPromise;
       }
+
+      if (portmapHandle) await portmapHandle.release();
 
       await server.close();
     }

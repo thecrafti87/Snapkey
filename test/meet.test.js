@@ -197,6 +197,78 @@ test('eine Verbindung, die nichts sagt, wird nach Ablauf der Frist geschlossen',
   assert.ok(socket.destroyed);
 });
 
+/* ------------------------ Der zweistufige Weg ------------------------ */
+
+test('found liefert das direct der Anmeldung durch', async (t) => {
+  const server = await meetServer.start({ port: 0 });
+  t.after(() => server.close());
+
+  const adresse = identity.create().address;
+
+  meet.register('127.0.0.1', server.port, { address: adresse, direct: '203.0.113.7:41999' }).catch(() => {});
+  await warteAuf(() => server.registered === 1);
+
+  const auskunft = await meet.lookup('127.0.0.1', server.port, { address: adresse });
+  assert.equal(auskunft.direct, '203.0.113.7:41999');
+
+  // Aufräumen: sagen, dass es der direkte Weg wird - hier nur zum Testabschluss.
+  auskunft.cancel();
+});
+
+test('ohne direct liefert found null - kein erfundener Wert', async (t) => {
+  const server = await meetServer.start({ port: 0 });
+  t.after(() => server.close());
+
+  const adresse = identity.create().address;
+
+  meet.register('127.0.0.1', server.port, { address: adresse }).catch(() => {});
+  await warteAuf(() => server.registered === 1);
+
+  const auskunft = await meet.lookup('127.0.0.1', server.port, { address: adresse });
+  assert.equal(auskunft.direct, null);
+  auskunft.cancel();
+});
+
+test('nach cancel bleibt die Gegenstelle angemeldet - ein zweiter Anlauf findet sie, und join schaltet wie bisher durch', async (t) => {
+  const server = await meetServer.start({ port: 0 });
+  t.after(() => server.close());
+
+  const adresse = identity.create().address;
+
+  const registrierung = meet.register('127.0.0.1', server.port, { address: adresse });
+  await warteAuf(() => server.registered === 1);
+
+  const ersterAnlauf = await meet.lookup('127.0.0.1', server.port, { address: adresse });
+  assert.equal(server.registered, 1, 'die Anmeldung sollte durch found noch nicht verbraucht sein');
+  ersterAnlauf.cancel();
+
+  // 'cancel' geht erst noch ueber die Leitung - kurz nachschauen, dass
+  // die Anmeldung danach wirklich noch da ist.
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(server.registered, 1, 'die Anmeldung war nach cancel weg');
+
+  const zweiterAnlauf = await meet.lookup('127.0.0.1', server.port, { address: adresse });
+  assert.equal(zweiterAnlauf.direct, null);
+
+  const [sucher, empfaenger] = await Promise.all([zweiterAnlauf.join(), registrierung]);
+  t.after(() => { sucher.close(); empfaenger.close(); });
+
+  assert.equal(server.registered, 0, 'die Anmeldung haette jetzt verbraucht sein muessen');
+
+  // Rohe Bytes in beide Richtungen - genau wie bei 'reach' bisher.
+  const beiEmpfaenger = [];
+  empfaenger.onData((b) => beiEmpfaenger.push(b));
+  sucher.send(Buffer.from('hallo empfaenger'));
+  await warteAuf(() => Buffer.concat(beiEmpfaenger).length >= 'hallo empfaenger'.length);
+  assert.equal(Buffer.concat(beiEmpfaenger).toString('utf8'), 'hallo empfaenger');
+
+  const beiSucher = [];
+  sucher.onData((b) => beiSucher.push(b));
+  empfaenger.send(Buffer.from('hallo sucher'));
+  await warteAuf(() => Buffer.concat(beiSucher).length >= 'hallo sucher'.length);
+  assert.equal(Buffer.concat(beiSucher).toString('utf8'), 'hallo sucher');
+});
+
 test('close() kehrt zurueck, auch wenn noch Verbindungen offen sind', async () => {
   const server = await meetServer.start({ port: 0 });
   const adresse = identity.create().address;

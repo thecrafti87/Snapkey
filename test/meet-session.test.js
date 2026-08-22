@@ -9,6 +9,12 @@
    dabei zaehlt: die Datei kommt vollstaendig und unverfaelscht an, die
    Vermittlungsstelle bekommt vom Inhalt nichts zu sehen, der Empfaenger
    bleibt danach erreichbar, und die Torkontrolle gilt unveraendert.
+
+   Zwei weitere Pruefungen unten zeigen den direkten Weg: meldet der
+   Empfaenger ein `direct`, das wirklich zu ihm fuehrt, verbindet der
+   Sender direkt und der Treffpunkt sieht nur noch die schmale
+   Vermittlung, keine Nutzdaten (`route === 'direct'`). Zeigt `direct`
+   ins Leere, faengt die Umleitung es auf (`route === 'relay'`).
    ================================================================= */
 
 const test = require('node:test');
@@ -21,6 +27,10 @@ const net = require('net');
 
 const nodeMod = require('../src/node/node');
 const meetServer = require('../src/meet/server');
+const meetClient = require('../src/net/meet');
+const tcp = require('../src/net/tcp');
+const session = require('../src/core/session');
+const identity = require('../src/core/identity');
 
 /* ----------------------------- Aufbau ----------------------------- */
 
@@ -183,4 +193,108 @@ test('die Torkontrolle gilt auch ueber den Treffpunkt: ein unbekannter Sender wi
   );
 
   assert.deepEqual(fs.readdirSync(empfaenger.ziel), [], 'im Zielordner liegt trotzdem etwas');
+});
+
+/* ------------------------- Der direkte Weg ------------------------- */
+
+test('meldet der Empfaenger ein direct, das wirklich zu ihm fuehrt, verbindet der Sender direkt - '
+  + 'der Treffpunkt sieht die Nutzdaten nicht', async (t) => {
+  const meetSrv = await meetServer.start({ port: 0 });
+  t.after(() => meetSrv.close());
+
+  // Derselbe Zapfhahn wie oben: was tatsaechlich durch den Treffpunkt
+  // liefe, wuerde hier auftauchen. Bei einer echten Direktverbindung
+  // laeuft dort NICHTS durch, ausser der schmalen Vermittlung selbst.
+  const proxy = await tapProxy(meetSrv.port);
+  t.after(() => proxy.close());
+  const treffpunkt = { host: '127.0.0.1', port: proxy.port };
+
+  const sender = await knoten(t, 'direkt-send');
+
+  // Der Empfaenger hier ist absichtlich KEIN nodeMod.open() mit `meet` -
+  // sonst koennte sein eigener Anmelde-Kreislauf (der ohne Portfreigabe
+  // kein `direct` kennt) die von Hand gesetzte Anmeldung unten jederzeit
+  // verdraengen. Ein blosser TCP-Zuhoerer reicht: `sendTo` kuemmert sich
+  // nicht darum, wie die Gegenstelle organisiert ist.
+  const empfId = identity.create();
+  const zielOrdner = tempdir(t, 'direkt-ziel');
+  const empfListener = await tcp.listen(0, (transport) => {
+    session.receive(transport, { identity: empfId, expect: sender.n.me.pub, dir: zielOrdner })
+      .catch(() => {})
+      .finally(() => transport.close());
+  });
+  t.after(() => empfListener.close());
+
+  const abbruch = new AbortController();
+  t.after(() => abbruch.abort());
+  meetClient.register(treffpunkt.host, treffpunkt.port, {
+    address: empfId.address,
+    direct: `127.0.0.1:${empfListener.port}`,
+    signal: abbruch.signal
+  }).catch(() => {});
+  await warteAuf(() => meetSrv.registered === 1);
+
+  const dir1 = tempdir(t, 'direkt-quelle');
+  const root1 = quelle(dir1, 'direkt');
+
+  const res = await sender.n.sendTo({ address: empfId.address, meet: treffpunkt }, [root1]);
+  assert.equal(res.ok, true, 'die Uebertragung wurde nicht vollstaendig');
+  assert.equal(res.route, 'direct', 'haette den direkten Weg nehmen muessen');
+
+  assert.ok(fs.readFileSync(path.join(zielOrdner, 'ordner', 'oben.txt'))
+    .equals(fs.readFileSync(path.join(root1, 'oben.txt'))), 'der Inhalt kam nicht unverfaelscht an');
+
+  const alles = Buffer.concat(proxy.mitschnitt);
+  assert.equal(alles.indexOf('KLARTEXT-OBEN-direkt'), -1, 'der Treffpunkt konnte den Dateiinhalt lesen');
+  // Nur die schmale Vermittlung ('reach'/'found'/'cancel') laeuft durch
+  // den Treffpunkt - keine 60 KB Nutzdaten. Grosszuegig bemessen, es
+  // geht nicht um einen genauen Wert.
+  assert.ok(alles.length < 2000, `der Mitschnitt ist zu gross fuer reine Steuerdaten: ${alles.length} Bytes`);
+});
+
+test('zeigt direct ins Leere, gelingt die Uebertragung trotzdem - ueber die Umleitung', async (t) => {
+  const meetSrv = await meetServer.start({ port: 0 });
+  t.after(() => meetSrv.close());
+  const treffpunkt = { host: '127.0.0.1', port: meetSrv.port };
+
+  const sender = await knoten(t, 'toterdirekt-send');
+
+  const empfId = identity.create();
+  const zielOrdner = tempdir(t, 'toterdirekt-ziel');
+  const empfListener = await tcp.listen(0, (transport) => {
+    session.receive(transport, { identity: empfId, expect: sender.n.me.pub, dir: zielOrdner })
+      .catch(() => {})
+      .finally(() => transport.close());
+  });
+  t.after(() => empfListener.close());
+
+  const abbruch = new AbortController();
+  t.after(() => abbruch.abort());
+
+  // Ein direct, unter dem niemand lauscht - Port 1 ist privilegiert und
+  // auf einem gewoehnlichen Entwicklungsrechner nicht belegt, ein
+  // Verbindungsversuch dorthin scheitert schnell (siehe tcp.test.js).
+  const registrierung = meetClient.register(treffpunkt.host, treffpunkt.port, {
+    address: empfId.address,
+    direct: '127.0.0.1:1',
+    signal: abbruch.signal
+  });
+  registrierung.then((transport) => {
+    // Klappt trotz des toten `direct` die Umleitung, landet die
+    // Sitzung hier - genau wie bei einem gewoehnlichen `reach`.
+    session.receive(transport, { identity: empfId, expect: sender.n.me.pub, dir: zielOrdner })
+      .catch(() => {})
+      .finally(() => transport.close());
+  }).catch(() => {});
+  await warteAuf(() => meetSrv.registered === 1);
+
+  const dir1 = tempdir(t, 'toterdirekt-quelle');
+  const root1 = quelle(dir1, 'toterdirekt');
+
+  const res = await sender.n.sendTo({ address: empfId.address, meet: treffpunkt }, [root1]);
+  assert.equal(res.ok, true, 'die Uebertragung wurde nicht vollstaendig');
+  assert.equal(res.route, 'relay', 'haette ueber die Umleitung laufen muessen');
+
+  assert.ok(fs.readFileSync(path.join(zielOrdner, 'ordner', 'oben.txt'))
+    .equals(fs.readFileSync(path.join(root1, 'oben.txt'))), 'der Inhalt kam nicht unverfaelscht an');
 });

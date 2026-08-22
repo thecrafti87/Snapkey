@@ -290,10 +290,71 @@ die sich sonst schlicht nicht erreichen.
 ## Wie eine Vermittlung abläuft
 
 Wer erreichbar sein will, meldet sich mit `here` unter seiner Anschrift an und
-wartet. Wer jemanden sucht, schickt `reach` mit derselben Anschrift. Sind
-beide da, schickt der Treffpunkt an beide `joined` und schaltet die
-Leitungen zusammen — die Anmeldung ist damit verbraucht. Danach meldet sich
-der wartende Knoten sofort wieder an, bleibt also nach jeder Übertragung
-weiter erreichbar. Eine zweite Anmeldung unter derselben Anschrift verdrängt
-eine ältere; wer binnen 30 Sekunden weder `here` noch `reach` sagt, wird
-getrennt.
+wartet. Wer jemanden sucht, schickt `reach` mit derselben Anschrift und
+bekommt zuerst nur die Auskunft: `found`, wenn die Anschrift angemeldet ist
+(zusammen mit deren `direct`, falls vorhanden — siehe unten), sonst `nobody`.
+Die Anmeldung ist damit **noch nicht** verbraucht — erst ein ausdrückliches
+`join` schaltet die Leitungen wirklich zusammen (der Treffpunkt schickt dann
+an beide `joined`). Wer stattdessen `cancel` sagt (der direkte Weg hat
+geklappt) oder einfach auflegt, lässt die Anmeldung der Gegenstelle
+unangetastet — sie bleibt für den nächsten Sucher erreichbar. Nach einer
+tatsächlichen Vermittlung meldet sich der wartende Knoten sofort wieder an.
+Eine zweite Anmeldung unter derselben Anschrift verdrängt eine ältere; wer
+binnen 30 Sekunden nichts Passendes sagt, wird getrennt.
+
+## Portfreigabe und der direkte Weg
+
+Den Treffpunkt als Umleitung braucht man nur, wenn **keine** der beiden
+Seiten von außen erreichbar ist. Kann eine Seite ihren eigenen Router dazu
+bringen, einen Port zu öffnen, reicht danach eine gewöhnliche
+TCP-Verbindung — ohne Vermittlung, ohne dass eine dritte Stelle die
+Bandbreite trägt. Drei Verfahren werden dafür der Reihe nach probiert, jedes
+mit kurzer Frist:
+
+- **NAT-PMP** (RFC 6886) — älter und einfach, viele Router aus offener
+  Firmware und von Apple sprechen es.
+- **PCP** (RFC 6887) — der Nachfolger, auch für IPv6 gedacht.
+- **UPnP-IGD** — am weitesten verbreitet, aber auch am meisten
+  Fehlerquellen: SSDP-Rundruf, eine Geräte­beschreibung als XML, dann ein
+  SOAP-Aufruf.
+
+**Das klappt oft nicht — und das ist kein Fehler.** Viele Router haben
+Portfreigabe abgeschaltet, und manche Internetanschlüsse hängen hinter einer
+Adresse, die sich hunderte andere teilen (Carrier-Grade-NAT) — dort gibt es
+gar keinen eigenen Port zum Freigeben. `kaiman router` zeigt, was bei einem
+selbst geht, fragt den Standardrouter ab und probiert alle drei Verfahren:
+
+```bash
+$ kaiman router
+Standardrouter: 192.168.1.1
+Probiere NAT-PMP, PCP und UPnP (je bis zu einige Sekunden) ...
+Keines der drei Verfahren hat geantwortet - normal in vielen Netzen
+(abgeschaltet, oder ein Anschluss mit geteilter Adresse ohne eigenen Port).
+Kein Fehler.
+```
+
+Klappt es, zeigt `kaiman listen --portfreigabe` die öffentliche Adresse gleich
+mit an:
+
+```bash
+$ kaiman listen --out ~/Empfangen --neue-annehmen --treffpunkt dxp8800plus-1 --portfreigabe
+...
+Portfreigabe (natpmp): öffentlich erreichbar unter 203.0.113.7:41999
+Melde mich zusätzlich am Treffpunkt dxp8800plus-1 an ...
+```
+
+Der Treffpunkt wird für diese Übertragungen dann nur noch zur **Vermittlung**
+gebraucht, nicht mehr zur Umleitung: der Empfänger meldet dort seine direkte
+Adresse mit an, der Sender probiert sie zuerst und nimmt die Umleitung nur,
+wenn sie nicht erreichbar ist. Die Ausgabe von `kaiman send` sagt, welcher der
+drei Wege es am Ende war:
+
+```
+Weg: im eigenen Netz
+Weg: direkt über den Treffpunkt vermittelt
+Weg: über die Umleitung
+```
+
+`kaiman id --portfreigabe` probiert dasselbe einmalig, nur um die öffentliche
+Adresse anzuzeigen — ohne einen Zuhörer offen zu halten, die Freigabe wird
+danach gleich zurückgegeben.

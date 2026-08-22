@@ -149,7 +149,10 @@ function handshake(host, port, hello, { timeout, ping, handle, signal }) {
             let scheitern = null;
             handle(msg, {
               done: () => { fertig = true; },
-              fail: (err) => { scheitern = err; }
+              fail: (err) => { scheitern = err; },
+              // Fuer 'reach': auf 'found' hin gleich 'join' zurueckschicken,
+              // ohne die Verbindung neu aufzubauen.
+              reply: (m) => transport.send(frame.pack(frame.control(m)))
             });
             if (scheitern) { fail(scheitern); return; }
           }
@@ -174,10 +177,13 @@ function handshake(host, port, hello, { timeout, ping, handle, signal }) {
 
 /**
  * Meldet sich unter `address` erreichbar und wartet, bis jemand kommt.
+ * `direct` (optional, "host:port") wird an den Treffpunkt mitgegeben -
+ * wer nach `address` sucht, bekommt sie zuerst genannt und kann es
+ * direkt probieren, bevor er die Umleitung nimmt.
  * `signal` (optional) bricht das Warten ab - siehe `handshake`.
  */
-function register(host, port, { address, pass, timeout = 8000, signal } = {}) {
-  return handshake(host, port, protocol.hereMsg(address, pass), {
+function register(host, port, { address, pass, direct, timeout = 8000, signal } = {}) {
+  return handshake(host, port, protocol.hereMsg(address, pass, direct), {
     timeout,
     ping: true,
     signal,
@@ -190,13 +196,20 @@ function register(host, port, { address, pass, timeout = 8000, signal } = {}) {
   });
 }
 
-/** Sucht `address` am Treffpunkt und bekommt die Leitung zu ihr. */
+/**
+ * Sucht `address` am Treffpunkt und bekommt die Leitung zu ihr - das
+ * volle Programm in einem Rutsch: auf 'found' folgt sofort 'join', die
+ * Umleitung wird also in jedem Fall genommen. Wer stattdessen zuerst
+ * selbst einen direkten Weg probieren will, braucht `lookup` statt
+ * dessen.
+ */
 function reach(host, port, { address, pass, timeout = 8000, signal } = {}) {
   return handshake(host, port, protocol.reachMsg(address, pass), {
     timeout,
     ping: false,
     signal,
     handle(msg, ctx) {
+      if (msg.t === 'found') return ctx.reply(protocol.joinMsg());
       if (msg.t === 'joined') return ctx.done();
       if (msg.t === 'nobody') return ctx.fail(fehlerMit(`${address} ist gerade nicht am Treffpunkt angemeldet`, 'NOBODY'));
       if (msg.t === 'denied') return ctx.fail(fehlerMit(msg.reason || 'Anmeldung abgelehnt', 'DENIED'));
@@ -205,4 +218,130 @@ function reach(host, port, { address, pass, timeout = 8000, signal } = {}) {
   });
 }
 
-module.exports = { DEFAULT_PORT, register, reach };
+/**
+ * Liest Steuernachrichten von einer schon verbundenen Leitung, bis
+ * `handle` per `ctx.done()`/`ctx.fail()` sagt, dass dieser Abschnitt
+ * des Gespraechs fertig ist. Anders als `handshake` baut das keine
+ * eigene Verbindung auf und ist mehrfach hintereinander auf derselben
+ * Leitung aufrufbar - `lookup` nutzt das: erst auf 'found' warten, dann
+ * (nur wenn `join()` faellt) getrennt auf 'joined'.
+ *
+ * Was vom vorigen Abschnitt schon als vollstaendiger Rahmen dalag
+ * (`restFrames`), wird zuerst abgearbeitet, bevor ueberhaupt auf neue
+ * Socket-Ereignisse gewartet wird - siehe die Warnung oben im Datei-Kopf.
+ */
+function leseAbschnitt(transport, decoder, restFrames, handle) {
+  return new Promise((resolve, reject) => {
+    let fertig = false;
+    let settled = false;
+    let handler = null;
+
+    const cleanup = () => { if (handler) transport.socket.off('data', handler); };
+    const beenden = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn(arg);
+    };
+
+    transport.onClose(() => beenden(reject, new Error('Die Verbindung zum Treffpunkt wurde getrennt')));
+
+    const verarbeiten = (frames) => {
+      for (const payload of frames) {
+        if (fertig) { restFrames.push(payload); continue; }
+
+        const split = frame.split(payload);
+        const msg = split && split.type === frame.CONTROL ? protocol.read(split.body) : null;
+        if (!msg) { beenden(reject, new Error('Unlesbare Antwort vom Treffpunkt')); return; }
+
+        let scheitern = null;
+        handle(msg, { done: () => { fertig = true; }, fail: (err) => { scheitern = err; } });
+        if (scheitern) { beenden(reject, scheitern); return; }
+      }
+      if (fertig) beenden(resolve);
+    };
+
+    if (restFrames.length) {
+      verarbeiten(restFrames.splice(0));
+      if (settled) return;
+    }
+
+    handler = (bytes) => {
+      let frames;
+      try {
+        frames = decoder.push(bytes);
+      } catch (err) { beenden(reject, err); return; }
+      verarbeiten(frames);
+    };
+    transport.socket.on('data', handler);
+  });
+}
+
+/**
+ * Fragt am Treffpunkt nach `address`, OHNE gleich durchzuschalten. Die
+ * Verbindung bleibt offen - der Aufrufer entscheidet danach per
+ * `join()` (doch die Umleitung nehmen) oder `cancel()` (der direkte
+ * Weg - `direct`, falls vorhanden - hat geklappt, der Treffpunkt wird
+ * nicht mehr gebraucht).
+ *
+ * Bei 'nobody' schlaegt das Versprechen fehl, code NOBODY - wie bei
+ * `reach`.
+ */
+async function lookup(host, port, { address, pass, timeout = 8000 } = {}) {
+  const transport = await tcp.connect(host, port, { timeout });
+  const decoder = new frame.Decoder();
+  const restFrames = [];
+  let direct = null;
+
+  try {
+    transport.send(frame.pack(frame.control(protocol.reachMsg(address, pass))));
+
+    await leseAbschnitt(transport, decoder, restFrames, (msg, ctx) => {
+      if (msg.t === 'found') { direct = msg.direct || null; return ctx.done(); }
+      if (msg.t === 'nobody') return ctx.fail(fehlerMit(`${address} ist gerade nicht am Treffpunkt angemeldet`, 'NOBODY'));
+      if (msg.t === 'denied') return ctx.fail(fehlerMit(msg.reason || 'Anmeldung abgelehnt', 'DENIED'));
+      ctx.fail(new Error(`Unerwartete Antwort des Treffpunkts: ${msg.t}`));
+    });
+  } catch (err) {
+    transport.close();
+    throw err;
+  }
+
+  let entschieden = false;
+
+  return {
+    direct,
+
+    async join() {
+      if (entschieden) throw new Error('join()/cancel() wurde fuer diese Anfrage schon aufgerufen');
+      entschieden = true;
+
+      try {
+        transport.send(frame.pack(frame.control(protocol.joinMsg())));
+
+        await leseAbschnitt(transport, decoder, restFrames, (msg, ctx) => {
+          if (msg.t === 'joined') return ctx.done();
+          ctx.fail(new Error(`Unerwartete Antwort des Treffpunkts: ${msg.t}`));
+        });
+      } catch (err) {
+        transport.close();
+        throw err;
+      }
+
+      const rest = Buffer.concat([
+        ...restFrames.map((p) => frame.pack(p)),
+        decoder.pending ? decoder.take(decoder.pending) : Buffer.alloc(0)
+      ]);
+      return mitRest(transport, rest);
+    },
+
+    cancel() {
+      if (entschieden) return;
+      entschieden = true;
+      transport.send(frame.pack(frame.control(protocol.cancelMsg())));
+      transport.close();
+    }
+  };
+}
+
+module.exports = { DEFAULT_PORT, register, reach, lookup };
