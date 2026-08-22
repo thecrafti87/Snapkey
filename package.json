@@ -3,6 +3,10 @@
   "version": "0.1.1",
   "private": true,
   "description": "Dateien und Nachrichten verschlüsselt direkt zwischen zwei Geräten übertragen, ohne Server und ohne Konto",
+  "author": {
+    "name": "SNAPKEY",
+    "email": "242768743+thecrafti87@users.noreply.github.com"
+  },
   "license": "MIT",
   "main": "app/main.js",
   "bin": {
