@@ -26,6 +26,39 @@ snapkey help               # die Befehle
 - **Einmal koppeln, nie wieder tippen** — Geräte erkennen einander am Schlüssel
 - **Kurznachrichten über denselben Weg** wie die Dateien
 
+## Signieren und beglaubigen
+
+Ohne Apple-Entwicklerkennung meldet macOS beim ersten Start Bedenken. Zwei
+Dinge räumen das aus, und beide braucht es:
+
+| | |
+|---|---|
+| **Signieren** | Ein „Developer ID Application"-Zertifikat im Schlüsselbund. Sagt, **wer** gebaut hat. |
+| **Beglaubigen** | Apple prüft das Paket kurz und gibt einen Vermerk zurück. Sagt, dass **nichts bekannt Schädliches** drin ist. |
+
+Was fehlt, sagt dir:
+
+```bash
+npm run signatur
+```
+
+Sobald beide Haken stehen, baut, signiert und beglaubigt dieser Befehl in einem
+Zug:
+
+```bash
+npm run dist:signiert
+```
+
+Das app-spezifische Passwort liegt dabei im Schlüsselbund, nicht in einer
+Umgebungsvariablen — deshalb wird mit Apples `notarytool` beglaubigt statt mit
+electron-builders Automatik.
+
+**Ehrlich dazu:** Die Einstellungen für geschützte Laufzeit und Rechte
+(`build-config/entitlements.mac.plist`) sind vorbereitet und entsprechen dem,
+was Electron braucht — geprüft werden konnte bislang nur, dass der **unsignierte**
+Bau weiterhin läuft. Ob das Signieren durchgeht, zeigt sich erst mit einem echten
+Zertifikat.
+
 ## Der Aufbau
 
 | Datei | Wofür |
