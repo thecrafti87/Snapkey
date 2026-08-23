@@ -80,6 +80,40 @@ function parse(buf) {
   };
 }
 
+/* --------------------------- Die Karten --------------------------- */
+
+/**
+ * Alle brauchbaren IPv4-Karten dieses Rechners.
+ *
+ * Gibt man dem Betriebssystem keine Karte vor, waehlt es selbst - unter
+ * Windows nach der kleinsten Metrik der Route 224.0.0.0/4. Auf einem
+ * Rechner mit VPN, WSL oder Hyper-V ist das regelmaessig NICHT das echte
+ * Netz, sondern eine tote 169.254-Karte: der Rundruf ginge ins Leere,
+ * und gelauscht wuerde auf derselben toten Karte. Nachgemessen auf einem
+ * Windows-Rechner mit zehn Karten - gewonnen hat eine abgezogene
+ * Ethernet-Buchse mit Metrik 5, waehrend das echte LAN bei 25 stand.
+ *
+ * Auf einem Mac mit einer aktiven Karte faellt das nie auf. Deshalb wird
+ * hier nichts der Wahl des Systems ueberlassen: es wird auf jeder Karte
+ * beigetreten und auf jeder Karte gerufen.
+ *
+ * 169.254 bleibt ausdruecklich drin. Zwei Rechner an einem Kabel ohne
+ * DHCP haben genau solche Adressen - und das ist der Fall, fuer den es
+ * SNAPKEY gibt.
+ */
+function karten() {
+  const raus = [];
+  for (const adressen of Object.values(os.networkInterfaces())) {
+    for (const a of adressen || []) {
+      // Node meldet die Familie je nach Fassung als Text oder als Zahl.
+      if (a.family !== 'IPv4' && a.family !== 4) continue;
+      if (a.internal) continue;
+      raus.push(a.address);
+    }
+  }
+  return raus;
+}
+
 /* --------------------------- Der Rundruf --------------------------- */
 
 /**
@@ -133,34 +167,127 @@ function start({ identity, port, name = os.hostname(), onChange = () => {} }) {
     }
   });
 
+  // Die Karten, auf denen die Gruppe wirklich angenommen wurde. Leer
+  // heisst: keine einzige hat gewollt - dann wird ohne Angabe gerufen,
+  // wie frueher, statt gar nicht.
+  const beigetreten = new Set();
+
+  /**
+   * Tritt auf jeder Karte bei, die noch fehlt, und vergisst die, die
+   * verschwunden sind. Wird nicht nur beim Start gerufen, sondern bei
+   * jeder Wiederholung: ein VPN kommt und geht, ein WLAN auch, und ein
+   * Rundruf, der die Karte von vor zehn Minuten benutzt, ist so blind
+   * wie gar keiner.
+   */
+  function kartenPflegen() {
+    const jetzt = new Set(karten());
+
+    for (const adresse of jetzt) {
+      if (beigetreten.has(adresse)) continue;
+      try {
+        socket.addMembership(GROUP, adresse);
+        beigetreten.add(adresse);
+      } catch {
+        // Nicht jede Karte nimmt Gruppen an - abgeschaltete Adapter,
+        // gesperrte Netze, virtuelle Bruecken ohne Multicast. Die
+        // anderen genuegen, und wer eine Adresse von Hand eintraegt,
+        // kommt ohnehin durch.
+      }
+    }
+
+    for (const adresse of [...beigetreten]) {
+      if (jetzt.has(adresse)) continue;
+      beigetreten.delete(adresse);
+      try { socket.dropMembership(GROUP, adresse); } catch { /* Karte ist ohnehin schon weg */ }
+    }
+  }
+
+  // Laeuft gerade ein Ruf ueber die Karten? Dann keinen zweiten
+  // daneben starten - beide wuerden sich die Karte umstellen.
+  let imGange = false;
+
   const rufen = (bye = false) => {
-    if (stopped) return;
+    if (stopped || imGange) return;
     const msg = announcement({ address: identity.address, pub: identity.pub, port, name, bye });
-    socket.send(msg, PORT, GROUP, () => {});
+    verschicken(msg);
   };
+
+  /**
+   * Schickt eine Ankuendigung ueber jede Karte raus - eine NACH der
+   * anderen, nicht in einer Schleife.
+   *
+   * setMulticastInterface() stellt den Socket um, nicht den einzelnen
+   * send(). Die Aufrufe von send() werden aber nicht sofort abgearbeitet,
+   * sondern eingereiht: eine Schleife setzt also fuenfmal die Karte um
+   * und schickt danach alle fuenf Pakete ueber die, die zuletzt gesetzt
+   * wurde. Nachgemessen auf einem Rechner mit fuenf Karten - in der
+   * Schleife kamen alle fuenf Pakete von derselben Karte, nacheinander
+   * jedes von seiner eigenen.
+   *
+   * Deshalb: umstellen, senden, Rueckmeldung abwarten, naechste Karte.
+   */
+  function verschicken(msg, fertig = () => {}, trotzStopp = false) {
+    // Keine Karte angenommen: rufen wie frueher und dem System die Wahl
+    // lassen. Schlechter als gezielt, aber besser als Schweigen.
+    if (!beigetreten.size) return void socket.send(msg, PORT, GROUP, () => fertig());
+
+    const ziele = [...beigetreten];
+    let i = 0;
+    imGange = true;
+
+    const naechste = () => {
+      // Ein laufender Ruf soll nicht ueber den Abschied hinweglaufen.
+      if (i >= ziele.length || (stopped && !trotzStopp)) {
+        imGange = false;
+        return fertig();
+      }
+
+      const adresse = ziele[i++];
+      try {
+        socket.setMulticastInterface(adresse);
+        socket.send(msg, PORT, GROUP, () => setImmediate(naechste));
+      } catch {
+        // Karte zwischen Pflege und Ruf verschwunden, oder der Socket ist
+        // schon zu. Beim naechsten Takt ist sie aus der Liste.
+        setImmediate(naechste);
+      }
+    };
+
+    naechste();
+  }
 
   return new Promise((resolve, reject) => {
     socket.once('error', reject);
 
     socket.bind(PORT, () => {
       socket.off('error', reject);
-      try {
-        socket.addMembership(GROUP);
-      } catch (err) {
-        // Manche Netze lassen keine Gruppen zu. Dann hoert man nichts,
-        // kann aber weiter rufen - und wer eine Adresse von Hand
-        // eintraegt, kommt trotzdem durch.
-        socket.emit('quiet', err);
-      }
+
       socket.setMulticastTTL(1);       // nur das eigene Netz, kein Weiterleiten
       socket.setMulticastLoopback(true);
 
+      kartenPflegen();
+      if (!beigetreten.size) {
+        // Keine einzige Karte hat die Gruppe angenommen. Als Notnagel
+        // der alte Weg: einmal ohne Angabe beitreten und das System
+        // waehlen lassen. Geht auch das nicht, hoert man nichts, kann
+        // aber weiter rufen - und wer eine Adresse von Hand eintraegt,
+        // kommt trotzdem durch.
+        try {
+          socket.addMembership(GROUP);
+        } catch (err) {
+          socket.emit('quiet', err);
+        }
+      }
+
       rufen();
-      timer = setInterval(() => { rufen(); sweep(); }, HELLO_MS);
+      timer = setInterval(() => { kartenPflegen(); rufen(); sweep(); }, HELLO_MS);
       if (timer.unref) timer.unref();
 
       resolve({
         get peers() { return snapshot(); },
+
+        /** Auf welchen Karten die Gruppe angenommen wurde - fuer die Pruefungen. */
+        get karten() { return [...beigetreten]; },
 
         /**
          * Sucht nach Anschrift oder Geraetenamen.
@@ -183,13 +310,30 @@ function start({ identity, port, name = os.hostname(), onChange = () => {} }) {
           stopped = true;
           clearInterval(timer);
           // Zum Abschied Bescheid geben, statt die anderen zehn
-          // Sekunden auf einen Geist warten zu lassen.
+          // Sekunden auf einen Geist warten zu lassen - auf jeder Karte,
+          // auf der auch gerufen wurde. Geschlossen wird erst, wenn der
+          // letzte Abschied raus ist, sonst reisst das Schliessen die
+          // uebrigen mit.
+          let zu = false;
+          const schliessen = () => {
+            if (zu) return;
+            zu = true;
+            try { socket.close(); } catch { /* war schon zu */ }
+          };
+
           const bye = announcement({ address: identity.address, pub: identity.pub, port, name, bye: true });
-          socket.send(bye, PORT, GROUP, () => socket.close());
+          verschicken(bye, schliessen, true);
+
+          // Bleibt eine Rueckmeldung aus - eine Karte genau im Moment des
+          // Abschieds abgezogen -, wird trotzdem geschlossen. Sonst haengt
+          // der Prozess an einem Socket, der auf ein Ereignis wartet, das
+          // nicht mehr kommt.
+          const notbremse = setTimeout(schliessen, 500);
+          if (notbremse.unref) notbremse.unref();
         }
       });
     });
   });
 }
 
-module.exports = { GROUP, PORT, HELLO_MS, STALE_MS, announcement, parse, start };
+module.exports = { GROUP, PORT, HELLO_MS, STALE_MS, karten, announcement, parse, start };

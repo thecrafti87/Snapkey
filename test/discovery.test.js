@@ -12,6 +12,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const dgram = require('dgram');
+
 const identity = require('../src/core/identity');
 const discovery = require('../src/net/discovery');
 
@@ -102,6 +104,63 @@ test('auf dem Rundruf landet auch Fremdes - das wird zu null, nicht zum Wurf', a
       assert.equal(discovery.parse(machen()), null, bezeichnung);
     });
   }
+});
+
+/* --------------------- Auf welchen Karten gerufen --------------------- */
+
+/**
+ * Warum das eine eigene Pruefung braucht, obwohl unten schon zwei echte
+ * Rundrufe gegeneinander laufen:
+ *
+ * Die beiden dort sitzen auf DEMSELBEN Rechner, und
+ * setMulticastLoopback(true) schleift jedes Paket hostintern zurueck -
+ * ganz gleich, ueber welche Karte es hinausging. Die Pruefung unten
+ * wird also auch dann gruen, wenn gar keine echte Karte benutzt wird.
+ * Genau daran ist der Fehler lange vorbeigekommen: gerufen wurde auf
+ * einer toten 169.254-Karte, die Pruefungen sagten trotzdem "passt",
+ * und im echten Netz fand sich niemand.
+ *
+ * Hier wird deshalb nicht gehorcht, sondern nachgesehen, WO beigetreten
+ * wurde - das laesst sich ohne Netz und ohne Wackeln festnageln.
+ */
+test('der Rundruf tritt auf jeder Karte bei, die eine Gruppe annimmt - nicht nur auf der, die das System waehlt', async (t) => {
+  const alle = discovery.karten();
+  if (!alle.length) {
+    t.skip('dieser Rechner hat keine nicht-interne IPv4-Karte - dann greift der Notnagel, und das ist richtig so');
+    return;
+  }
+
+  // Kontrollgruppe: auf einem eigenen Socket ausprobieren, welche Karten
+  // eine Mitgliedschaft ueberhaupt annehmen. Nicht jede tut das -
+  // abgeschaltete Adapter, virtuelle Bruecken ohne Multicast. Genau die
+  // annehmenden, und keine andere, muss der Rundruf erwischt haben.
+  const moeglich = await new Promise((resolve) => {
+    const probe = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    probe.bind(0, () => {
+      const geht = [];
+      for (const adresse of alle) {
+        try {
+          probe.addMembership(discovery.GROUP, adresse);
+          geht.push(adresse);
+        } catch { /* diese Karte nimmt keine Gruppe an */ }
+      }
+      probe.close(() => resolve(geht));
+    });
+  });
+
+  if (!moeglich.length) {
+    t.skip('keine Karte dieses Rechners nimmt eine Multicast-Gruppe an');
+    return;
+  }
+
+  const beacon = await discovery.start({ identity: identity.create(), port: 51003, name: 'Kartenprobe', onChange: () => {} });
+  t.after(() => beacon.stop());
+
+  assert.deepEqual(
+    [...beacon.karten].sort(),
+    [...moeglich].sort(),
+    'der Rundruf hat nicht genau die Karten erwischt, die eine Gruppe annehmen'
+  );
 });
 
 /* ------------------------ Der echte Rundruf ------------------------ */
