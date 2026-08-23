@@ -25,6 +25,7 @@ const identity = require('../src/core/identity');
 const meetServerMod = require('../src/meet/server');
 const storeMod = require('../src/node/store');
 const selfupdate = require('./selfupdate');
+const quickaction = require('./quickaction');
 const { t } = require('./renderer/i18n');
 
 let win = null;
@@ -92,6 +93,44 @@ function showWindow(view) {
   win.focus();
   if (view) win.webContents.send('window:openView', view);
 }
+
+/* ------------------------------ Dateien aus dem Finder ------------------------------ */
+
+// "Oeffnen mit" und der Finder-Kurzbefehl (app/quickaction.js) uebergeben
+// die ausgewaehlten Pfade an Electron als open-file - aber einzeln und
+// dicht hintereinander, selbst wenn man zehn Dateien auf einmal markiert
+// hatte. Ausserdem koennen sie eintreffen, bevor ueberhaupt ein Fenster
+// steht (der allererste Start ueber den Kurzbefehl). Deshalb: sammeln,
+// kurz abwarten, dann als ein Ereignis weiterreichen - flushQueuedFiles()
+// verwirft nichts, wenn das Fenster noch nicht so weit ist, sondern
+// wartet auf den naechsten Anstoss (den Timer oder did-finish-load,
+// siehe app.whenReady() weiter unten).
+let queuedFiles = [];
+let flushTimer = null;
+
+function flushQueuedFiles() {
+  if (!queuedFiles.length) return;
+  if (!win || win.isDestroyed() || win.webContents.isLoading()) return;
+  const paths = queuedFiles;
+  queuedFiles = [];
+  showWindow('send');
+  win.webContents.send('files:add', paths);
+}
+
+function queueFiles(paths) {
+  queuedFiles.push(...paths.filter(Boolean));
+  clearTimeout(flushTimer);
+  flushTimer = setTimeout(flushQueuedFiles, 250);
+}
+
+// Muss vor app.whenReady() registriert sein: macOS kann open-file schon
+// auf dem Weg zum "ready"-Ereignis feuern, und ein Handler, der erst
+// danach lauscht, wuerde die ersten Pfade des Starts nie zu sehen
+// bekommen.
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  queueFiles([filePath]);
+});
 
 /* ------------------------------ Menueleiste ------------------------------ */
 
@@ -556,6 +595,27 @@ ipcMain.handle('update:apply', () => {
   return res;
 });
 
+/* ------------------------------ Finder-Kurzbefehl ------------------------------ */
+
+function finderStatus() {
+  return { supported: quickaction.supported(), installed: quickaction.isInstalled() };
+}
+
+ipcMain.handle('finder:status', () => finderStatus());
+
+// label kommt von der Oberflaeche, in der gerade eingestellten Sprache -
+// quickaction.js selbst kennt keine Sprachen, es schreibt nur, was man
+// ihm gibt.
+ipcMain.handle('finder:install', (_e, label) => {
+  quickaction.install(label, 'SNAPKEY');
+  return finderStatus();
+});
+
+ipcMain.handle('finder:remove', () => {
+  quickaction.remove();
+  return finderStatus();
+});
+
 /* -------------------------------- Start/Ende -------------------------------- */
 
 app.whenReady().then(async () => {
@@ -573,6 +633,12 @@ app.whenReady().then(async () => {
   await openNode();
   createWindow();
   refreshTray();
+
+  // Holt nach, was queueFiles() schon vor diesem Zeitpunkt gesammelt
+  // hat (der Start ueber den Kurzbefehl liefert seine Pfade oft, bevor
+  // die Seite fertig geladen ist) - der Timer allein wuerde sie sonst
+  // verlieren, weil flushQueuedFiles() vor dem Laden nichts schickt.
+  win.webContents.once('did-finish-load', () => flushQueuedFiles());
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -596,6 +596,28 @@ SNAPKEY_HOME=~/.snapkey-a npm run app
 SNAPKEY_HOME=~/.snapkey-b npm run app
 ```
 
+## Im Finder rechtsklicken
+
+In den Einstellungen, Abschnitt „Anwendung", ein Schalter „Im Finder
+rechtsklicken". An legt unter `~/Library/Services` einen Kurzbefehl an
+(`app/quickaction.js`) — ein Dienst-Bündel, das der Finder im
+Rechtsklickmenü anbietet. Danach lassen sich Dateien und Ordner direkt aus
+dem Finder heraus „Mit SNAPKEY senden“, eine einzelne oder mehrere auf
+einmal markierte gleichermaßen; SNAPKEY holt sich das Fenster nach vorn,
+wechselt in die Ansicht Senden und legt sie dort in die Auswahl. Aus nimmt
+den Kurzbefehl wieder weg. Darunter steht in einem Satz, ob er gerade
+eingerichtet ist.
+
+macOS zeigt einen neu angelegten Dienst im Rechtsklickmenü manchmal erst
+nach einem Neustart des Finders:
+
+```bash
+killall Finder
+```
+
+**Nur macOS** — Windows und Linux haben so etwas (noch) nicht. Dort steht
+das ehrlich im Hinweistext, statt einen Schalter ohne Wirkung anzubieten.
+
 ## Was diese Oberfläche noch nicht kann
 
 Ehrlich gesagt, und nicht verschwiegen:

@@ -30,6 +30,7 @@ const state = {
   version: '',
   meetNote: null,
   portmapNote: null,
+  finder: { supported: false, installed: false },
   sendRunning: false,
   currentSendJob: null,
 
@@ -499,6 +500,11 @@ function renderSettingsForm() {
   $('#setPortmap').checked = Boolean(s.portmap);
   $('#setTray').checked = s.tray !== false;
   $('#setNotify').checked = s.notify !== false;
+  $('#setFinder').checked = state.finder.installed;
+  // Ein Schalter ohne Wirkung ist schlimmer als gar keiner - auf einer
+  // Plattform ohne Finder-Dienste bleibt er stumm, der Hinweistext
+  // darunter erklaert warum (siehe renderSettingsNotes).
+  $('#setFinder').disabled = !state.finder.supported;
 
   $('#recvOutDir').value = state.outDir || '';
   $('#recvTrustNew').checked = Boolean(s.trustNew);
@@ -532,12 +538,38 @@ function renderSettingsNotes() {
     pmEl.textContent = '';
     pmEl.removeAttribute('data-tone');
   }
+
+  const finderEl = $('#finderNote');
+  if (!state.finder.supported) {
+    finderEl.textContent = T('set.finderUnsupported');
+    finderEl.removeAttribute('data-tone');
+  } else if (state.finder.installed) {
+    finderEl.textContent = T('set.finderInstalled');
+    finderEl.dataset.tone = 'good';
+  } else {
+    finderEl.textContent = T('set.finderNotInstalled');
+    finderEl.removeAttribute('data-tone');
+  }
 }
 
 async function setSetting(patch) {
   state.settings = await api.setSetting(patch);
   await refreshState();
   await refreshPeers();
+  renderSettingsForm();
+  renderSettingsNotes();
+}
+
+/**
+ * Legt den Finder-Kurzbefehl an oder nimmt ihn weg - kein Eintrag in
+ * settings.json wie bei den anderen Schaltern, sondern eine echte
+ * Datei unter ~/Library/Services. Die Beschriftung geht in der gerade
+ * eingestellten Sprache mit, damit der Menue-Eintrag im Finder dazu
+ * passt (siehe set.finderLabel).
+ */
+async function onFinderToggle() {
+  const an = $('#setFinder').checked;
+  state.finder = an ? await api.finderInstall(T('set.finderLabel')) : await api.finderRemove();
   renderSettingsForm();
   renderSettingsNotes();
 }
@@ -1110,6 +1142,7 @@ function wireSettings() {
   $('#setPortmap').addEventListener('change', () => setSetting({ portmap: $('#setPortmap').checked }));
   $('#setTray').addEventListener('change', () => setSetting({ tray: $('#setTray').checked }));
   $('#setNotify').addEventListener('change', () => setSetting({ notify: $('#setNotify').checked }));
+  $('#setFinder').addEventListener('change', onFinderToggle);
 
   $('#updateCheckBtn').addEventListener('click', onUpdateCheck);
   $('#updateFetchBtn').addEventListener('click', onUpdateFetch);
@@ -1147,6 +1180,7 @@ async function init() {
   await refreshPeers();
   await refreshChats();
   await refreshHistory();
+  state.finder = await api.finderStatus();
 
   wireNav();
   wireSend();
@@ -1161,6 +1195,10 @@ async function init() {
   api.onHistoryChanged(refreshHistory);
   api.onUpdateProgress(handleUpdateProgress);
   api.onOpenView((view) => activateView(view));
+  // Dieselbe Verarbeitung wie beim Ziehen und Ablegen (addPaths) - der
+  // Hauptprozess hat die Ansicht schon auf "Senden" gestellt, bevor
+  // dieses Ereignis kommt (siehe app/main.js, showWindow('send')).
+  api.onFilesAdd((paths) => addPaths(paths));
 
   applyLang();
 

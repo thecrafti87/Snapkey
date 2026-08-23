@@ -41,6 +41,10 @@ contextBridge.exposeInMainWorld('snapkey', {
   updateFetch: () => ipcRenderer.invoke('update:fetch'),
   updateApply: () => ipcRenderer.invoke('update:apply'),
 
+  finderStatus: () => ipcRenderer.invoke('finder:status'),
+  finderInstall: (label) => ipcRenderer.invoke('finder:install', label),
+  finderRemove: () => ipcRenderer.invoke('finder:remove'),
+
   // Seit Electron 32 liefert File.path nichts mehr - der echte Pfad
   // einer per Drag & Drop abgelegten Datei kommt nur noch hierueber.
   pathForFile: (file) => {
@@ -81,5 +85,13 @@ contextBridge.exposeInMainWorld('snapkey', {
     const handler = (_e, view) => fn(view);
     ipcRenderer.on('window:openView', handler);
     return () => ipcRenderer.removeListener('window:openView', handler);
+  },
+
+  // Pfade aus dem Finder (Kurzbefehl oder "Oeffnen mit"), gebuendelt vom
+  // Hauptprozess - siehe app/main.js, Abschnitt "Dateien aus dem Finder".
+  onFilesAdd: (fn) => {
+    const handler = (_e, paths) => fn(paths);
+    ipcRenderer.on('files:add', handler);
+    return () => ipcRenderer.removeListener('files:add', handler);
   }
 });

@@ -48,7 +48,20 @@
       "gatekeeperAssess": false,
       "entitlements": "build-config/entitlements.mac.plist",
       "entitlementsInherit": "build-config/entitlements.mac.plist",
-      "notarize": false
+      "notarize": false,
+      "extendInfo": {
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Beliebige Datei",
+            "CFBundleTypeRole": "Viewer",
+            "LSItemContentTypes": [
+              "public.item",
+              "public.folder"
+            ],
+            "LSHandlerRank": "Alternate"
+          }
+        ]
+      }
     },
     "dmg": {
       "icon": "app/assets/icon.icns",
