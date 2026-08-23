@@ -1,6 +1,6 @@
 {
   "name": "snapkey",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Dateien und Nachrichten verschlüsselt direkt zwischen zwei Geräten übertragen, ohne Server und ohne Konto",
   "author": {
