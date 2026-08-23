@@ -26,6 +26,47 @@ snapkey help               # die Befehle
 - **Einmal koppeln, nie wieder tippen** — Geräte erkennen einander am Schlüssel
 - **Kurznachrichten über denselben Weg** wie die Dateien
 
+## Installieren
+
+Fertige Pakete gibt es unter
+[Releases](https://github.com/thecrafti87/Snapkey/releases):
+
+| System | Datei |
+|---|---|
+| Mac, Apple-Chip (M1 und neuer) | `SNAPKEY-…-arm64.dmg` |
+| Mac, Intel | `SNAPKEY-…-x64.dmg` |
+| Windows | `SNAPKEY-…-x64.exe`, oder `-x64.zip` zum Entpacken |
+| Debian, Ubuntu | `SNAPKEY-…-amd64.deb` |
+| Linux, sonst | `SNAPKEY-…-x86_64.AppImage` |
+
+### Beim ersten Start auf dem Mac
+
+macOS meldet Bedenken, weil SNAPKEY keine kostenpflichtige
+Apple-Entwicklerkennung hat. Das ist eine Aussage über die fehlende Kennung,
+**nicht** über das Programm.
+
+Der schnellste Weg — SNAPKEY in den Programme-Ordner ziehen, dann einmal im
+Terminal:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/SNAPKEY.app
+```
+
+Das entfernt das Quarantäne-Merkmal, das macOS jeder geladenen Datei anheftet.
+Danach startet SNAPKEY ohne Nachfrage.
+
+Liegt es woanders, den Pfad entsprechend anpassen — oder die Datei einfach ins
+Terminal ziehen, dann setzt macOS ihn selbst ein:
+
+```bash
+xattr -dr com.apple.quarantine ~/Downloads/SNAPKEY.app
+```
+
+Wer die Kommandozeile meiden will, nimmt stattdessen: **Systemeinstellungen →
+Datenschutz & Sicherheit →** ganz unten **„Dennoch öffnen"**. Der Eintrag
+erscheint erst, nachdem man einmal vergeblich versucht hat, SNAPKEY zu starten.
+Ein Rechtsklick → Öffnen hilft **seit macOS 15 nicht mehr**.
+
 ## Signieren und beglaubigen
 
 Ohne Apple-Entwicklerkennung meldet macOS beim ersten Start Bedenken. Zwei
@@ -608,20 +649,11 @@ der Versionsverwaltung.
 
 ### Ohne Apple-Developer-ID — die Gatekeeper-Meldung
 
-Das Paket ist **nicht signiert**, es gibt keine Apple-Developer-ID dafür.
-Beim ersten Öffnen aus dem DMG heraus meldet macOS deshalb Bedenken — das ist
-erwartet, kein Zeichen für ein kaputtes Paket. Ein Rechtsklick → Öffnen hilft
-dagegen **seit macOS 15 nicht mehr**; der Weg über die Oberfläche bleibt:
-
-> Systemeinstellungen → Datenschutz & Sicherheit → ganz unten „Trotzdem
-> öffnen" (erscheint erst, nachdem der erste Öffnen-Versuch einmal
-> abgebrochen wurde).
-
-Wer lieber die Kommandozeile nimmt, entfernt das Quarantäne-Merkmal direkt:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/SNAPKEY.app
-```
+Selbst gebaute Pakete sind **nicht signiert**, es gibt keine Apple-Developer-ID
+dafür. macOS meldet beim ersten Öffnen deshalb Bedenken — erwartet, kein
+Zeichen für ein kaputtes Paket. Wie man es trotzdem startet, steht oben unter
+[Installieren](#installieren); es ist derselbe Weg wie bei den geladenen
+Paketen.
 
 ### Das Selbstupdate
 
