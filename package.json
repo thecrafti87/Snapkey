@@ -82,6 +82,7 @@
       "owner": "thecrafti87",
       "repo": "Snapkey",
       "releaseType": "release"
-    }
+    },
+    "afterPack": "build-config/nachsignieren.js"
   }
 }
