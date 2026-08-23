@@ -31,7 +31,14 @@ function tempdir(t) {
   return dir;
 }
 
-/** Taeuscht fuer eine Pruefung eine andere Plattform vor, macht es danach rueckgaengig. */
+/**
+ * Taeuscht fuer eine Pruefung eine andere Plattform vor, macht es danach
+ * rueckgaengig. Jede Pruefung, die wirklich ein Buendel anlegt, MUSS das
+ * vorher auf 'darwin' stellen - sonst haengt ihr Ausgang am System, auf
+ * dem sie gerade laueft: auf einem Mac ginge sie durch, auf Windows und
+ * Linux liefert install() planmaessig null, und die Pruefung faellt an
+ * path.join(null, ...) um, statt etwas ueber den Code auszusagen.
+ */
 function alsPlattform(t, platform) {
   const echte = process.platform;
   Object.defineProperty(process, 'platform', { value: platform, configurable: true });
@@ -56,6 +63,7 @@ test('auf einer anderen Plattform ist supported() falsch, und install() scheiter
 });
 
 test('install() legt das Buendel an, isInstalled() erkennt es, remove() nimmt es wieder weg', (t) => {
+  alsPlattform(t, 'darwin');
   const dir = tempdir(t);
   assert.equal(quickaction.isInstalled(), false, 'vor dem Anlegen darf noch nichts da sein');
 
@@ -70,6 +78,7 @@ test('install() legt das Buendel an, isInstalled() erkennt es, remove() nimmt es
 });
 
 test('das erzeugte Buendel enthaelt die erwarteten Dateien und die uebergebene Beschriftung', (t) => {
+  alsPlattform(t, 'darwin');
   tempdir(t);
   const root = quickaction.install('Mit SNAPKEY senden', 'SNAPKEY');
 
@@ -89,6 +98,7 @@ test('das erzeugte Buendel enthaelt die erwarteten Dateien und die uebergebene B
 });
 
 test('zweimal anlegen ueberschreibt, statt zu scheitern', (t) => {
+  alsPlattform(t, 'darwin');
   tempdir(t);
   quickaction.install('Erste Beschriftung', 'SNAPKEY');
   const root = quickaction.install('Zweite Beschriftung', 'SNAPKEY');
@@ -100,6 +110,7 @@ test('zweimal anlegen ueberschreibt, statt zu scheitern', (t) => {
 });
 
 test('remove() auf etwas, das nicht da ist, gibt false statt zu werfen', (t) => {
+  alsPlattform(t, 'darwin');
   tempdir(t);
   assert.equal(quickaction.isInstalled(), false);
   assert.doesNotThrow(() => {
