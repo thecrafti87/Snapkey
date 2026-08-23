@@ -328,6 +328,26 @@ async function refreshChats() {
   renderMessagesView();
 }
 
+/**
+ * Beide Listen neu holen, die an derselben Frage haengen: wer ist
+ * gekoppelt?
+ *
+ * Gekoppelt wird nicht nur durch den Knopf auf der Geraeteseite. Eine
+ * angenommene Uebertragung koppelt (siehe pruefen() in
+ * src/node/node.js), und wer an eine von Hand eingetippte Anschrift
+ * sendet, ebenso (zielPruefen() dort). Beide Wege liefen bisher nur
+ * durch refreshPeers() - in den Nachrichten stand danach weiter "noch
+ * kein Geraet gekoppelt", obwohl auf der Geraeteseite eins als
+ * gekoppelt gefuehrt wurde. Bis zum Neustart, dann war es da.
+ *
+ * Deshalb hier zusammen und nicht an jeder Stelle einzeln: die naechste
+ * Stelle, die koppelt, vergisst sonst wieder die Haelfte.
+ */
+async function refreshGekoppelte() {
+  await refreshPeers();
+  await refreshChats();
+}
+
 async function onChatSend() {
   if (state.chatSending) return;
   const address = state.chatSelected;
@@ -903,7 +923,8 @@ function handleNodeEvent(e) {
       const bekannt = state.peers.find((p) => p.address === e.address);
       job.title = (bekannt && bekannt.name) || e.address;
       renderJobs();
-      refreshPeers();
+      // Angenommen heisst gekoppelt - auch fuer die Gespraechsliste.
+      refreshGekoppelte();
       break;
     }
 
@@ -950,7 +971,7 @@ function handleNodeEvent(e) {
         job.error = T('job.missing', e.result.missing.join(', '));
       }
       renderJobs();
-      refreshPeers();
+      refreshGekoppelte();
       merkeEingang('receive');
       break;
     }
@@ -1063,6 +1084,11 @@ async function onSendStart() {
     state.sendRunning = false;
     $('#sendStart').disabled = false;
     renderJobs();
+    // Senden koppelt: an eine von Hand eingetippte Anschrift geschickt,
+    // und die Gegenstelle steht danach in der Ablage. Ohne das hier
+    // waere sie weder auf der Geraeteseite noch in den Nachrichten zu
+    // sehen - bis zum naechsten Start.
+    refreshGekoppelte();
   }
 }
 
