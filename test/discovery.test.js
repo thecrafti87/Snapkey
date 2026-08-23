@@ -230,3 +230,87 @@ test('zwei Geraete im Netz finden sich ueber den echten Rundruf', async (t) => {
     assert.equal(beaconA.find('nicht-vorhanden'), null);
   });
 });
+
+/* --------------------- Rufen: von selbst oder auf Knopf --------------------- */
+
+/** Wartet, bis `pruefen()` wahr wird - oder gibt nach `ms` auf. */
+async function warteBis(pruefen, ms = 6000) {
+  const ende = Date.now() + ms;
+  while (Date.now() < ende) {
+    if (pruefen()) return true;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return pruefen();
+}
+
+test('ein stiller Rundruf hoert zu, ohne sich zu zeigen - bis man ihn einmal rufen laesst', async (t) => {
+  const A = identity.create();
+  const B = identity.create();
+
+  const stiller = await discovery.start({ identity: A, port: 51011, name: 'Stiller', auto: false, onChange: () => {} });
+  const rufer = await discovery.start({ identity: B, port: 51012, name: 'Rufer', onChange: () => {} });
+  t.after(() => { stiller.stop(); rufer.stop(); });
+
+  assert.equal(stiller.auto, false);
+  assert.equal(rufer.auto, true);
+
+  // Zuhoeren kostet kein Rufen: der Stille sieht den anderen sehr wohl.
+  const gehoert = await warteBis(() => stiller.peers.some((p) => p.address === B.address));
+
+  // Auf den macOS-Laeufern der CI ist Multicast gesperrt - dort kann sich
+  // nichts finden, egal wie richtig der Code ist. Benannt und
+  // uebersprungen, nicht stillschweigend uebergangen.
+  if (!gehoert && process.env.CI) {
+    t.skip('Multicast ist auf diesem Laeufer gesperrt - hier nicht pruefbar');
+    return;
+  }
+  assert.ok(gehoert, 'der Stille hat den Rufer nicht gehoert, obwohl Zuhoeren kein Rufen voraussetzt');
+
+  // Umgekehrt nicht: wer nicht ruft, steht bei niemandem in der Liste.
+  assert.equal(
+    rufer.peers.some((p) => p.address === A.address),
+    false,
+    'der Stille war zu sehen, obwohl er nie gerufen hat'
+  );
+
+  // Ein einziger Ruf genuegt, um sichtbar zu werden - das ist der Knopf.
+  stiller.jetztRufen();
+  assert.ok(
+    await warteBis(() => rufer.peers.some((p) => p.address === A.address)),
+    'nach jetztRufen() war der Stille immer noch nicht zu sehen'
+  );
+});
+
+test('wer den Ruf abschaltet, verschwindet sofort bei den anderen - nicht erst nach dem Verfall', async (t) => {
+  const A = identity.create();
+  const B = identity.create();
+
+  const einer = await discovery.start({ identity: A, port: 51013, name: 'Einer', onChange: () => {} });
+  const andrer = await discovery.start({ identity: B, port: 51014, name: 'Andrer', onChange: () => {} });
+  t.after(() => { einer.stop(); andrer.stop(); });
+
+  const gesehen = await warteBis(() => andrer.peers.some((p) => p.address === A.address));
+  if (!gesehen && process.env.CI) {
+    t.skip('Multicast ist auf diesem Laeufer gesperrt - hier nicht pruefbar');
+    return;
+  }
+  assert.ok(gesehen, 'die beiden haben sich gar nicht erst gefunden');
+
+  assert.equal(einer.setAuto(false), false);
+  assert.equal(einer.auto, false);
+
+  // Die Frist ist knapp gewaehlt: STALE_MS betraegt zehn Sekunden. Wer
+  // hier innerhalb von drei verschwindet, ist abgemeldet worden und
+  // nicht bloss verfallen - genau das soll geprueft sein.
+  assert.ok(
+    await warteBis(() => !andrer.peers.some((p) => p.address === A.address), 3000),
+    'der Abgeschaltete stand immer noch in der Liste - der Abschied ging nicht raus'
+  );
+
+  // Und zurueck: Anschalten ruft sofort, statt bis zum naechsten Takt zu warten.
+  assert.equal(einer.setAuto(true), true);
+  assert.ok(
+    await warteBis(() => andrer.peers.some((p) => p.address === A.address)),
+    'nach dem Anschalten kam der Ruf nicht wieder'
+  );
+});

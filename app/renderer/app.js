@@ -176,7 +176,24 @@ function renderDeviceSelect() {
   if ([...sel.options].some((o) => o.value === vorher)) sel.value = vorher;
 }
 
+/**
+ * Der Schalter und sein Hinweis. Bewusst auf der Geraeteseite und nicht
+ * bei den Einstellungen: hier sieht man, was er bewirkt - die Liste
+ * darunter.
+ */
+function renderScanControls() {
+  const an = state.settings.autoScan !== false;
+
+  $('#devAutoScan').checked = an;
+
+  const note = $('#devScanNote');
+  note.textContent = T(an ? 'dev.scanOn' : 'dev.scanOff');
+  note.dataset.tone = an ? 'good' : '';
+}
+
 function renderDevices() {
+  renderScanControls();
+
   const box = $('#deviceList');
   box.textContent = '';
 
@@ -1103,6 +1120,27 @@ function wireReceive() {
 }
 
 function wireDevices() {
+  // Einmal rufen. Die Antworten kommen nicht sofort - sie treffen in den
+  // naechsten Sekunden ein und tragen sich ueber das peers-Ereignis
+  // nach. Deshalb sagt der Hinweis "Antworten treffen ein", statt eine
+  // fertige Liste zu versprechen.
+  $('#devScan').addEventListener('click', async () => {
+    const btn = $('#devScan');
+    btn.disabled = true;
+    try {
+      state.peers = await api.scan();
+      renderDevices();
+      renderDeviceSelect();
+      toast(T('dev.scanDone'), 'good');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $('#devAutoScan').addEventListener('change', () => {
+    setSetting({ autoScan: $('#devAutoScan').checked });
+  });
+
   $('#deviceList').addEventListener('click', async (ev) => {
     const pairBtn = ev.target.closest('[data-pair]');
     const forgetBtn = ev.target.closest('[data-forget]');

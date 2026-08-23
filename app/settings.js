@@ -26,6 +26,11 @@ const DEFAULTS = {
   meetPass: '',
   portmap: false,
   lang: 'en',
+  // Ruft der Knoten von selbst in den Raum? Steht bewusst NICHT in
+  // NODE_FELDER: das laesst sich am laufenden Knoten umlegen (siehe
+  // node:setSetting in main.js), ein Neustart waere hier unnoetig
+  // grob - er risse jede laufende Uebertragung mit ab.
+  autoScan: true,
   // Beide betreffen nur die Huelle (Menueleistensymbol, Mitteilungen),
   // nicht den Knoten - deshalb auch nicht in NODE_FELDER unten.
   tray: true,

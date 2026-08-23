@@ -121,12 +121,23 @@ function karten() {
  *
  * `onChange(peers)` wird gerufen, sobald jemand dazukommt oder
  * verschwindet - nicht bei jeder Wiederholung, sonst waere es Laerm.
+ *
+ * `auto: false` startet still: es wird gehoert, aber nicht gerufen. Wer
+ * so laueft, sieht die anderen und bleibt selbst unsichtbar, bis er
+ * `jetztRufen()` drueckt oder `setAuto(true)` sagt.
  */
-function start({ identity, port, name = os.hostname(), onChange = () => {} }) {
+function start({ identity, port, name = os.hostname(), onChange = () => {}, auto = true }) {
   const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
   const peers = new Map();
 
-  let timer = null;
+  // Zwei Takte, absichtlich getrennt: gepflegt (Karten nachfuehren,
+  // Verfallenes wegraeumen) wird immer, gerufen nur, wenn man will.
+  // Sonst friere man mit dem Abschalten auch die Liste ein - und ein
+  // Geraet, das laengst weg ist, stuende dort bis zum Neustart.
+  let pflegeTimer = null;
+  let rufTimer = null;
+
+  let autoAn = auto !== false;
   let stopped = false;
 
   const snapshot = () => [...peers.values()].map((p) => ({ ...p }));
@@ -256,6 +267,28 @@ function start({ identity, port, name = os.hostname(), onChange = () => {} }) {
     naechste();
   }
 
+  /**
+   * Abschied, ohne den Socket zu schliessen - "ich bin still, nicht
+   * weg". Wer den Ruf abschaltet, soll aus den Listen der anderen
+   * sofort verschwinden statt zehn Sekunden als Geist stehenzubleiben.
+   */
+  function abmelden() {
+    const bye = announcement({ address: identity.address, pub: identity.pub, port, name, bye: true });
+    verschicken(bye);
+  }
+
+  function rufTaktStarten() {
+    if (rufTimer) return;
+    rufTimer = setInterval(rufen, HELLO_MS);
+    if (rufTimer.unref) rufTimer.unref();
+  }
+
+  function rufTaktStoppen() {
+    if (!rufTimer) return;
+    clearInterval(rufTimer);
+    rufTimer = null;
+  }
+
   return new Promise((resolve, reject) => {
     socket.once('error', reject);
 
@@ -279,15 +312,57 @@ function start({ identity, port, name = os.hostname(), onChange = () => {} }) {
         }
       }
 
-      rufen();
-      timer = setInterval(() => { kartenPflegen(); rufen(); sweep(); }, HELLO_MS);
-      if (timer.unref) timer.unref();
+      pflegeTimer = setInterval(() => { kartenPflegen(); sweep(); }, HELLO_MS);
+      if (pflegeTimer.unref) pflegeTimer.unref();
+
+      if (autoAn) {
+        rufen();
+        rufTaktStarten();
+      }
 
       resolve({
         get peers() { return snapshot(); },
 
         /** Auf welchen Karten die Gruppe angenommen wurde - fuer die Pruefungen. */
         get karten() { return [...beigetreten]; },
+
+        /** Laueft der Ruf von selbst? */
+        get auto() { return autoAn; },
+
+        /**
+         * Einmal rufen, sofort - ganz gleich, ob der Takt laueft. Das
+         * ist der Knopf "jetzt suchen": ein Ruf hinaus, und wer ihn
+         * hoert, meldet sich seinerseits.
+         */
+        jetztRufen() {
+          rufen();
+          return true;
+        },
+
+        /**
+         * Schaltet den Takt an oder ab.
+         *
+         * Aus heisst: dieses Geraet ruft nicht mehr in den Raum. Gehoert
+         * wird weiter - wer selbst ruft, taucht hier trotzdem auf. Beim
+         * Abschalten geht ein Abschied raus, damit man bei den anderen
+         * sofort verschwindet statt zehn Sekunden als Geist dazustehen;
+         * beim Anschalten sofort ein Ruf, sonst bliebe man bis zum
+         * naechsten Takt unsichtbar.
+         */
+        setAuto(an) {
+          const neu = Boolean(an);
+          if (neu === autoAn) return autoAn;
+          autoAn = neu;
+
+          if (autoAn) {
+            rufen();
+            rufTaktStarten();
+          } else {
+            rufTaktStoppen();
+            abmelden();
+          }
+          return autoAn;
+        },
 
         /**
          * Sucht nach Anschrift oder Geraetenamen.
@@ -308,7 +383,8 @@ function start({ identity, port, name = os.hostname(), onChange = () => {} }) {
         stop() {
           if (stopped) return;
           stopped = true;
-          clearInterval(timer);
+          clearInterval(pflegeTimer);
+          rufTaktStoppen();
           // Zum Abschied Bescheid geben, statt die anderen zehn
           // Sekunden auf einen Geist warten zu lassen - auf jeder Karte,
           // auf der auch gerufen wurde. Geschlossen wird erst, wenn der

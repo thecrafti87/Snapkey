@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('snapkey', {
 
   state: () => ipcRenderer.invoke('node:state'),
   peers: () => ipcRenderer.invoke('node:peers'),
+  scan: () => ipcRenderer.invoke('node:scan'),
   settings: () => ipcRenderer.invoke('node:settings'),
   setSetting: (patch) => ipcRenderer.invoke('node:setSetting', patch),
   send: (ziel, paths) => ipcRenderer.invoke('node:send', { ziel, paths }),

@@ -75,6 +75,11 @@ async function open({
   port = 0,
   trustNew = false,
   announce = true,
+  // Ruft der Knoten von selbst in den Raum? Aus heisst: er hoert zu,
+  // bleibt aber selbst unsichtbar, bis jemand `scan()` drueckt. Das ist
+  // etwas anderes als `announce: false` - dort gibt es gar keinen
+  // Rundruf, hier nur keinen selbsttaetigen.
+  autoScan = true,
   meet = null,
   portmap: mitPortfreigabe = false,
   // Blockwiedererkennung: was schon irgendwo im Zielordner liegt, wird
@@ -230,6 +235,7 @@ async function open({
         identity: me,
         port: server.port,
         name,
+        auto: autoScan,
         onChange: (peers) => onEvent({ type: 'peers', peers })
       });
     } catch (err) {
@@ -467,6 +473,14 @@ async function open({
     get external() { return external; },
     get peers() { return beacon ? beacon.peers : []; },
     find: (hint) => (beacon ? beacon.find(hint) : null),
+
+    // Ohne Rundruf (announce: false, oder das Binden ist misslungen)
+    // gibt es nichts zu rufen und nichts zu schalten. Dann false statt
+    // eines Wurfes - der Aufrufer soll das als "geht hier nicht"
+    // behandeln koennen, so wie beim Finder-Kurzbefehl.
+    get autoScan() { return beacon ? beacon.auto : false; },
+    scan: () => (beacon ? beacon.jetztRufen() : false),
+    setAutoScan: (an) => (beacon ? beacon.setAuto(an) : false),
 
     sendTo,
     say,

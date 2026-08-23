@@ -216,6 +216,7 @@ function buildNodeOptions(values) {
     trustNew: Boolean(values.trustNew),
     dedup: values.dedup !== false,
     announce: true,
+    autoScan: values.autoScan !== false,
     portmap: Boolean(values.portmap),
     onEvent: handleNodeEvent
   };
@@ -448,8 +449,26 @@ ipcMain.handle('node:settings', () => ({
 ipcMain.handle('node:setSetting', async (_e, patch) => {
   const { values, betrifftKnoten } = settings.save(patch || {});
   if (betrifftKnoten) await restartNode();
+
+  // Der Rundruf laesst sich am laufenden Knoten umlegen - deshalb steht
+  // autoScan nicht in NODE_FELDER. Ein Neustart dafuer wuerde jede
+  // laufende Uebertragung mit abreissen, fuer einen Schalter, der nur
+  // einen Zeitgeber an- und ausmacht.
+  if (node && Object.prototype.hasOwnProperty.call(patch || {}, 'autoScan')) {
+    node.setAutoScan(values.autoScan !== false);
+  }
+
   refreshTray();
   return values;
+});
+
+// Einmal rufen, sofort. Zurueck kommt die Geraeteliste, wie sie in
+// diesem Augenblick aussieht - die Antworten auf den Ruf treffen erst
+// in den naechsten Sekunden ein und kommen ueber das peers-Ereignis
+// nach, genau wie sonst auch.
+ipcMain.handle('node:scan', () => {
+  if (node) node.scan();
+  return buildPeerList();
 });
 
 ipcMain.handle('node:send', async (_e, { ziel, paths }) => {
