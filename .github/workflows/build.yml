@@ -80,6 +80,14 @@ jobs:
             build/*.zip
             build/*.AppImage
             build/*.deb
+            # Der Futtertrog fuer das Selbstupdate unter Windows.
+            # electron-updater liest latest.yml am Release, um zu
+            # erfahren, was es dort gibt - fehlt die Datei, findet es
+            # nichts, ganz gleich wie viele Installer daneben liegen.
+            # Die blockmap gehoert dazu: mit ihr laedt ein Update nur
+            # die geaenderten Bloecke statt der ganzen 100 MB.
+            build/latest*.yml
+            build/*.blockmap
 
   release:
     name: Veroeffentlichung

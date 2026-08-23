@@ -25,6 +25,7 @@ const identity = require('../src/core/identity');
 const meetServerMod = require('../src/meet/server');
 const storeMod = require('../src/node/store');
 const selfupdate = require('./selfupdate');
+const winupdate = require('./winupdate');
 const quickaction = require('./quickaction');
 const { t } = require('./renderer/i18n');
 
@@ -592,13 +593,29 @@ ipcMain.handle('shell:reveal', (_e, target) => {
 
 /* ------------------------------ Selbstupdate ------------------------------ */
 
-ipcMain.handle('update:can', () => selfupdate.canReplace());
+/**
+ * Welcher Weg zum Selbstupdate gilt auf diesem System?
+ *
+ * Windows: electron-updater (app/winupdate.js) - dort verlangt der Weg
+ * ueber NSIS keine Signatur. Mac: der Handbetrieb (app/selfupdate.js),
+ * weil Squirrel.Mac ohne Signatur verweigert. Linux: ebenfalls
+ * selfupdate.js, das dort ehrlich "geht hier nicht" meldet.
+ *
+ * Beide sprechen denselben Vertrag - canReplace/check/prepare/install
+ * mit denselben Feldern -, deshalb genuegt hier die Auswahl. Die Griffe
+ * darunter und die Oberflaeche kennen den Unterschied nicht.
+ */
+function updateWeg() {
+  return process.platform === 'win32' ? winupdate : selfupdate;
+}
 
-ipcMain.handle('update:check', () => selfupdate.check(selfupdate.configuredRepo()));
+ipcMain.handle('update:can', () => updateWeg().canReplace());
+
+ipcMain.handle('update:check', () => updateWeg().check(selfupdate.configuredRepo()));
 
 ipcMain.handle('update:fetch', async () => {
   preparedUpdate = null;
-  const res = await selfupdate.prepare(selfupdate.configuredRepo(), (e) => {
+  const res = await updateWeg().prepare(selfupdate.configuredRepo(), (e) => {
     if (win) win.webContents.send('update:progress', e);
   });
   if (res.ok) preparedUpdate = res;
@@ -609,10 +626,32 @@ ipcMain.handle('update:fetch', async () => {
 
 ipcMain.handle('update:apply', () => {
   if (!preparedUpdate) return { ok: false, message: 'Nichts zum Einspielen vorbereitet - erst laden.' };
-  const res = selfupdate.install(preparedUpdate);
+  const res = updateWeg().install(preparedUpdate);
   preparedUpdate = null;
   return res;
 });
+
+/**
+ * Einmal nach dem Start still nachsehen, ob es etwas Neues gibt.
+ *
+ * Still heisst: kein Dialog, kein Hinweis, der sich in den Weg stellt.
+ * Ein Fund landet in der Update-Karte unter den Einstellungen, und dort
+ * entscheidet der Benutzer. Wer nie hinsieht, wird nie gestoert.
+ *
+ * Verzoegert, damit der Start nicht darauf wartet - und Fehler bleiben
+ * absichtlich stumm: ohne Netz gestartet zu sein ist kein Grund fuer
+ * eine Meldung, die niemand angefordert hat.
+ */
+const STILLE_PRUEFUNG_MS = 8000;
+
+async function stillNachUpdateSehen() {
+  try {
+    const res = await updateWeg().check(selfupdate.configuredRepo());
+    if (res && res.ok && res.newer && win && !win.isDestroyed()) {
+      win.webContents.send('update:found', res);
+    }
+  } catch { /* still bleiben, siehe oben */ }
+}
 
 /* ------------------------------ Finder-Kurzbefehl ------------------------------ */
 
@@ -658,6 +697,11 @@ app.whenReady().then(async () => {
   // die Seite fertig geladen ist) - der Timer allein wuerde sie sonst
   // verlieren, weil flushQueuedFiles() vor dem Laden nichts schickt.
   win.webContents.once('did-finish-load', () => flushQueuedFiles());
+
+  // Nicht an did-finish-load gehaengt, sondern an einen eigenen Timer:
+  // die Pruefung soll nach dem Start geschehen, nicht als Teil davon.
+  const nachsehen = setTimeout(stillNachUpdateSehen, STILLE_PRUEFUNG_MS);
+  if (nachsehen.unref) nachsehen.unref();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -80,6 +80,15 @@ contextBridge.exposeInMainWorld('snapkey', {
     return () => ipcRenderer.removeListener('update:progress', handler);
   },
 
+  // Die stille Pruefung kurz nach dem Start hat etwas gefunden. Kommt
+  // ungefragt, deshalb landet es nur in der Update-Karte - siehe
+  // stillNachUpdateSehen() in main.js.
+  onUpdateFound: (fn) => {
+    const handler = (_e, payload) => fn(payload);
+    ipcRenderer.on('update:found', handler);
+    return () => ipcRenderer.removeListener('update:found', handler);
+  },
+
   // Ruft von aussen an: Menueleistensymbol oder eine angeklickte
   // Mitteilung wollen eine bestimmte Ansicht vorne sehen.
   onOpenView: (fn) => {

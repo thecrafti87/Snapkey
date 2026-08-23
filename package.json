@@ -77,8 +77,7 @@
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
       "perMachine": false
     },
     "linux": {
@@ -97,5 +96,8 @@
       "releaseType": "release"
     },
     "afterPack": "build-config/nachsignieren.js"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

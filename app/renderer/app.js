@@ -605,6 +605,11 @@ function updateReasonText(reason, message) {
     case 'no-bundle':
     case 'read-only': return T('set.updateReasonBundle');
     case 'kein-anhang': return T('set.updateReasonNoAsset');
+    case 'keine-veroeffentlichung': return T('set.updateReasonNoRelease');
+    // Kann nur auftreten, wenn zwischen Nachsehen und Laden
+    // veroeffentlicht wurde - dann ist "schon die neueste" die ehrliche
+    // Auskunft und kein Fehler.
+    case 'nicht-neuer': return T('set.updateNone');
     case 'version':
     case 'size': return T('set.updateReasonBad');
     default: return T('set.updateError', message || reason || '?');
@@ -722,6 +727,21 @@ async function onUpdateApply() {
 function handleUpdateProgress(e) {
   state.update.phase = e.phase;
   state.update.pct = (e.phase === 'download' && e.total) ? Math.min(100, Math.round((e.done / e.total) * 100)) : state.update.pct;
+  renderUpdate();
+}
+
+/**
+ * Die stille Pruefung kurz nach dem Start hat etwas gefunden.
+ *
+ * Es wird nur die Karte gefuellt - kein Hinweis, kein Ton, nichts, was
+ * sich in den Weg stellt. Wer gerade selbst nachsieht oder laedt, wird
+ * dabei nicht unterbrochen: dann bleibt der Fund liegen, bis der
+ * laufende Vorgang durch ist.
+ */
+function handleUpdateFound(res) {
+  if (state.update.busy || state.update.ready) return;
+  state.update.result = res;
+  state.update.fail = null;
   renderUpdate();
 }
 
@@ -1232,6 +1252,7 @@ async function init() {
   api.onSendProgress(handleSendProgress);
   api.onHistoryChanged(refreshHistory);
   api.onUpdateProgress(handleUpdateProgress);
+  api.onUpdateFound(handleUpdateFound);
   api.onOpenView((view) => activateView(view));
   // Dieselbe Verarbeitung wie beim Ziehen und Ablegen (addPaths) - der
   // Hauptprozess hat die Ansicht schon auf "Senden" gestellt, bevor
