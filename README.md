@@ -11,7 +11,7 @@ Ein eigenes Protokoll, kein Aufsatz auf ein fremdes Werkzeug. **Ohne ein
 einziges Fremdpaket** — alles, was es braucht, ist in Node eingebaut.
 
 ```bash
-npm test                   # 201 Prüfungen, rund acht Sekunden
+npm test                   # 258 Prüfungen, rund acht Sekunden
 node test/vorfuehrung.js   # 39 MB übertragen, abbrechen, fortsetzen
 snapkey help               # die Befehle
 ```
@@ -66,6 +66,47 @@ Wer die Kommandozeile meiden will, nimmt stattdessen: **Systemeinstellungen →
 Datenschutz & Sicherheit →** ganz unten **„Dennoch öffnen"**. Der Eintrag
 erscheint erst, nachdem man einmal vergeblich versucht hat, SNAPKEY zu starten.
 Ein Rechtsklick → Öffnen hilft **seit macOS 15 nicht mehr**.
+
+### Beim ersten Start unter Windows
+
+Dasselbe in Grün: SmartScreen meldet **„Der Computer wurde geschützt"**, weil
+SNAPKEY kein kostenpflichtiges Windows-Zertifikat hat. Auch das ist eine
+Aussage über die fehlende Kennung, **nicht** über das Programm.
+
+Der Weg ohne Kommandozeile führt über die Meldung selbst: **Weitere
+Informationen → Trotzdem ausführen**. Der Link steht klein unter dem Text und
+wird leicht übersehen.
+
+Wer die Meldung gar nicht erst sehen will, nimmt vorher einmal PowerShell:
+
+```powershell
+Unblock-File -Path "$env:USERPROFILE\Downloads\SNAPKEY-*.exe"
+```
+
+Das entfernt die Herkunftsmarkierung, die Windows jeder geladenen Datei
+anheftet — das Gegenstück zum Quarantäne-Merkmal von macOS. Danach startet der
+Installer ohne Nachfrage. Der Stern spart das Abtippen der Fassungsnummer;
+liegt der Download woanders, den Pfad entsprechend anpassen.
+
+Bei der ZIP-Fassung gilt: **erst die ZIP entsperren, dann entpacken.**
+Andersherum erbt jede entpackte Datei die Markierung, und die Meldung kommt
+beim Starten trotzdem.
+
+```powershell
+Unblock-File -Path "$env:USERPROFILE\Downloads\SNAPKEY-*.zip"
+```
+
+Auch ohne PowerShell geht es: Rechtsklick auf die Datei → **Eigenschaften** →
+unten **„Zulassen"** ankreuzen → OK.
+
+Der Installer fragt nichts und richtet im Benutzerprofil ein
+(`%LOCALAPPDATA%\Programs\SNAPKEY`) — deshalb auch keine Abfrage der
+Administratorrechte. Einen Zielordner gibt es nicht zu wählen; das ist die
+Bedingung dafür, dass die Selbstaktualisierung später ohne Dialog durchläuft.
+
+**Nur beim ersten Mal.** Ab 0.1.6 holt sich SNAPKEY neue Fassungen selbst
+(Einstellungen → Fassung), und was das Programm selbst lädt, trägt keine
+Herkunftsmarkierung.
 
 ## Signieren und beglaubigen
 
@@ -622,81 +663,117 @@ das ehrlich im Hinweistext, statt einen Schalter ohne Wirkung anzubieten.
 
 Ehrlich gesagt, und nicht verschwiegen:
 
-- **Windows und Linux ungeprüft** — Pakete werden dort gebaut und ihre
-  Prüfungen laufen durch, aber auf einem echten Windows- oder Linux-Gerät
-  ausprobiert wurde noch keins davon — siehe „Welche Systeme" unten.
-- **Kein Veröffentlichungsort eingetragen** — `npm run dist` baut ein
-  echtes, startfähiges Paket, aber wohin damit veröffentlicht wird (welches
-  GitHub-Repo die Fassungen trägt), ist noch nicht entschieden. Das
-  Selbstupdate sagt das ehrlich, statt stillschweigend nichts zu tun oder
-  gegen ein leeres Ziel zu fragen — siehe „Installieren und aktualisieren"
-  unten.
+- **Linux ungeprüft** — Pakete werden dort gebaut und ihre Prüfungen laufen
+  durch, aber auf einem echten Linux-Gerät ausprobiert wurde noch keins
+  davon. Windows ist inzwischen im Alltag geprüft: installiert, übertragen,
+  selbst aktualisiert.
+- **Nicht signiert** — weder Apple- noch Windows-Zertifikat. Beide Systeme
+  melden beim ersten Start Bedenken; wie man sie ausräumt, steht oben unter
+  [Installieren](#installieren). Die Selbstaktualisierung ist davon nicht
+  betroffen: was das Programm selbst lädt, trägt keine Herkunftsmarkierung.
 
 ## Welche Systeme
 
 | System  | Paketformen        | Architektur | Gebaut von |
 | ------- | ------------------ | ----------- | ---------- |
-| macOS   | `.dmg`              | arm64, x64  | dieser Mac (`npm run dist`) oder CI |
-| Windows | NSIS-Installer, `.zip` | x64      | nur CI (`npm run dist:win`) |
+| macOS   | `.dmg`              | arm64, x64  | ein Mac (`npm run dist`) oder CI |
+| Windows | NSIS-Installer, `.zip` | x64      | ein Windows-Rechner (`npm run dist:win`) oder CI |
 | Linux   | `.AppImage`, `.deb` | x64         | nur CI (`npm run dist:linux`) |
 
-Entwickelt wird auf einem Mac — Windows- und Linux-Pakete lassen sich von
-dort aus nicht sinnvoll bauen (electron-builder braucht dafür das
-jeweilige System). Deshalb übernimmt das `.github/workflows/build.yml`:
-bei jedem Push einer Marke `v1.2.3` bauen drei eigene Läufer
-(`macos-latest`, `windows-latest`, `ubuntu-latest`) je ihr Paket — aber
-erst, nachdem `npm test` auf **jedem** der drei grün war. Das ist mehr als
-eine Formalität: der Kern hat keine Fremdpakete und war bis dahin nur auf
-macOS wirklich gelaufen — erst die CI zeigt, ob er auch unter Windows und
-Linux durchläuft. Signiert wird dabei nirgends — dafür gibt es kein
-Zertifikat auf den Läufern, und das ist auch nicht der Anspruch.
+Ein Paket lässt sich nur auf dem System bauen, für das es gedacht ist
+(electron-builder braucht es). Deshalb übernimmt das
+`.github/workflows/build.yml`: bei jedem Push einer Marke `v1.2.3` bauen
+drei eigene Läufer (`macos-latest`, `windows-latest`, `ubuntu-latest`) je
+ihr Paket — aber erst, nachdem `npm test` auf **jedem** der drei grün war.
+Das ist mehr als eine Formalität: der Kern hat keine Fremdpakete, und erst
+die CI zeigt, ob er auf allen dreien durchläuft. Signiert wird dabei
+nirgends — dafür gibt es kein Zertifikat auf den Läufern, und das ist auch
+nicht der Anspruch.
 
-**Ehrlich gesagt:** Windows- und Linux-Pakete wurden bisher **nicht auf
-einem echten Gerät ausprobiert**. Belegt ist bislang nur, dass sie sich
-bauen lassen und dass die Prüfungen dort grün durchlaufen — nicht, dass
-Zuhören, Senden, Empfangen, Geräteschau oder die Oberfläche selbst dort
-tatsächlich wie erwartet funktionieren. Das eine ist ein CI-Ergebnis, das
-andere wäre eine echte Probe.
+An das Release gehen neben den Paketen auch `latest*.yml` und die
+`.blockmap` — der Futtertrog für die Selbstaktualisierung. Fehlt
+`latest.yml`, findet der Updater nichts, ganz gleich wie viele Installer
+daneben liegen.
+
+**Ehrlich gesagt:** **Linux-Pakete** wurden **nicht auf einem echten Gerät
+ausprobiert**. Belegt ist dort nur, dass sie sich bauen lassen und die
+Prüfungen grün durchlaufen — nicht, dass Zuhören, Senden, Empfangen,
+Geräteschau oder die Oberfläche wirklich wie erwartet arbeiten. Das eine
+ist ein CI-Ergebnis, das andere wäre eine echte Probe.
+
+Für **Windows** liegt diese Probe inzwischen vor: installiert, Geräte
+gefunden, 500-MB-Übertragungen in beide Richtungen, pausiert und
+fortgesetzt, gestoppt, zwei Sendungen nebeneinander — und die
+Selbstaktualisierung von einer installierten Fassung zur nächsten,
+einschließlich Neustart.
 
 ## Installieren und aktualisieren
 
 ```bash
-npm run dist    # app/**, src/** zu einem .app-Paket und einem DMG bauen
-npm run pack    # nur das .app-Paket, ohne DMG - fuer einen schnellen Testbau
+npm run dist       # macOS: .app-Paket und DMG (arm64 und x64)
+npm run dist:win   # Windows: NSIS-Installer und .zip
+npm run dist:linux # Linux: AppImage und .deb
+npm run pack       # nur das entpackte Paket - fuer einen schnellen Testbau
 ```
 
-Das fertige DMG landet unter `build/SNAPKEY-<Fassung>-<arch>.dmg` (`arm64`
-auf Apple Silicon, `x64` auf Intel) — `build/` selbst ist ausgeschlossen aus
-der Versionsverwaltung.
+Das Ergebnis landet unter `build/SNAPKEY-<Fassung>-<arch>.<endung>` —
+`build/` selbst ist ausgeschlossen aus der Versionsverwaltung. Jeder Befehl
+läuft nur auf dem System, für das er baut.
 
-### Ohne Apple-Developer-ID — die Gatekeeper-Meldung
+### Nicht signiert — die Meldung beim ersten Start
 
-Selbst gebaute Pakete sind **nicht signiert**, es gibt keine Apple-Developer-ID
-dafür. macOS meldet beim ersten Öffnen deshalb Bedenken — erwartet, kein
-Zeichen für ein kaputtes Paket. Wie man es trotzdem startet, steht oben unter
+Selbst gebaute wie geladene Pakete sind **nicht signiert**: es gibt weder
+eine Apple-Developer-ID noch ein Windows-Zertifikat dafür. Beide Systeme
+melden beim ersten Öffnen deshalb Bedenken — erwartet, kein Zeichen für ein
+kaputtes Paket. Wie man sie trotzdem startet, steht oben unter
 [Installieren](#installieren); es ist derselbe Weg wie bei den geladenen
 Paketen.
 
 ### Das Selbstupdate
 
-`app/selfupdate.js` folgt derselben Machart wie das Paket selbst: Fassungen
-über die GitHub-API abfragen, das zur eigenen Architektur passende DMG
-laden, einhängen, die `CFBundleShortVersionString` **im eingehängten
-Bündel** prüfen — bevor irgendetwas Bestehendes angefasst wird —, und dann
-über ein **abgekoppeltes Tauschskript** einspielen, das die alte Fassung
-beiseitelegt und bei einem Fehlschlag zurückholt. Warum abgekoppelt: das
-eigene `.app`-Paket ist die Datei, aus der der eigene Prozess gerade läuft —
-sie sich selbst überschreiben zu lassen, während man noch aus ihr heraus
-läuft, ist ein Wettlauf mit dem eigenen Beenden.
+Zwei Wege, ein Vertrag. Beide melden dieselben Felder, `app/main.js` wählt
+nur aus, und die Oberfläche kennt nur eine Form.
+
+**macOS — `app/selfupdate.js`, von Hand.** Fassungen über die GitHub-API
+abfragen, das zur eigenen Architektur passende DMG laden, einhängen, die
+`CFBundleShortVersionString` **im eingehängten Bündel** prüfen — bevor
+irgendetwas Bestehendes angefasst wird —, und dann über ein **abgekoppeltes
+Tauschskript** einspielen, das die alte Fassung beiseitelegt und bei einem
+Fehlschlag zurückholt. Warum abgekoppelt: das eigene `.app`-Paket ist die
+Datei, aus der der eigene Prozess gerade läuft — sie sich selbst
+überschreiben zu lassen, während man noch aus ihr heraus läuft, ist ein
+Wettlauf mit dem eigenen Beenden. `electron-updater` scheidet hier aus:
+sein Weg über Squirrel.Mac verlangt eine Signatur und verweigert ohne.
+
+**Windows — `app/winupdate.js`, über `electron-updater`.** Dort gilt der
+Einwand nicht, der NSIS-Weg kommt ohne Signatur aus. Der Feed ist
+`latest.yml` am Release; der Installer lädt über die `.blockmap` nur die
+geänderten Blöcke statt der ganzen 100 MB.
+
+Den **Neustart** danach besorgt SNAPKEY selbst, statt ihn dem Installer zu
+überlassen — `--force-run` trug in beiden Varianten nicht, nachgemessen am
+installierten Paket. Der Helfer wartet auf das Ende des eigenen Prozesses,
+dann auf den Installer, und startet nur, wenn nicht schon jemand läuft. Er
+geht über `cmd /c start` hinaus und nicht direkt: Electron hängt seine
+Kindprozesse an ein Job-Objekt, in dem beim Beenden alles mitstirbt —
+`detached` allein genügt auf Windows **nicht**.
 
 In den Einstellungen, eigener Abschnitt „Fassung": die laufende Fassung,
 ein Knopf „Nach Aktualisierung sehen"; ist eine neuere da, nennt er sie und
 macht Platz für „Laden" mit Fortschritt in Prozent, danach „Neu starten und
-übernehmen". Ist keine neuere da oder ist noch nichts eingerichtet, steht
-das in einem Satz da, statt schweigend nichts zu tun.
+übernehmen". Ist keine neuere da, steht das in einem Satz da, statt
+schweigend nichts zu tun. Acht Sekunden nach dem Start wird zusätzlich
+**still** nachgesehen — ein Fund landet in derselben Karte, ohne Dialog,
+ohne dass sich etwas in den Weg stellt.
 
-**Das funktioniert erst, wenn ein Veröffentlichungsort eingetragen ist** —
-`build.publish.owner`/`.repo` in `package.json` stehen derzeit bewusst leer,
-wohin veröffentlicht wird, ist noch nicht entschieden. Bis dahin liefert
-„Nach Aktualisierung sehen" den Satz, dass noch nichts eingerichtet ist,
-ganz ohne eine Netzanfrage ins Leere zu schicken.
+Der Veröffentlichungsort steht an **zwei** Stellen in der `package.json`,
+und das mit Absicht: `build.publish` für electron-builder — und zusätzlich
+das Standardfeld `repository`, weil electron-builder beim Packen das
+`build`-Feld aus der mitgelieferten `package.json` streift. Wer zur Laufzeit
+nur `build.publish` liest, liest im gebauten Paket `undefined`; genau daran
+war das Selbstupdate in jeder gebauten Fassung blind, ohne dass Quelltext
+oder Prüfungen es zeigen konnten. Eine Prüfung verlangt das `repository`-Feld
+jetzt ausdrücklich.
+
+Merksatz, der das gekostet hat: **Selbstupdate-Wege am gebauten Paket
+messen, nicht am Quelltext.**
