@@ -93,7 +93,10 @@ async function open({
   dedup = true,
   onEvent = () => {}
 } = {}) {
-  const box = store.open(home);
+  // onEvent durchreichen: geht die eigene Kennung verloren, ist das kein
+  // Randfall, den man in einer Rueckgabe unterbringt - es macht jede
+  // bestehende Kopplung wertlos, und der Mensch muss es erfahren.
+  const box = store.open(home, { onEvent });
   const me = box.me;
   const inbox = messagesMod.open(box.dir);
 

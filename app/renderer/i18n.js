@@ -191,7 +191,10 @@ const I18N = {
     'notify.messageTitle': 'New message from {0}',
     'notify.messageBody': '{0}',
     'notify.refusedTitle': 'Call refused',
-    'notify.refusedBody': '{0}'
+    'notify.refusedBody': '{0}',
+    'notify.identityTitle': 'This device has a new address',
+    'notify.identityLost': 'The stored key could not be read, so a new one was created. Paired devices will no longer recognise this one — you need to pair again.',
+    'notify.identityUnstable': 'The key could not be stored permanently. This device will get a new address on every start until that is fixed.'
   },
 
   /* ------------------------------- DE ------------------------------- */
@@ -367,7 +370,10 @@ const I18N = {
     'notify.messageTitle': 'Neue Nachricht von {0}',
     'notify.messageBody': '{0}',
     'notify.refusedTitle': 'Anruf abgewiesen',
-    'notify.refusedBody': '{0}'
+    'notify.refusedBody': '{0}',
+    'notify.identityTitle': 'Dieses Gerät hat eine neue Anschrift',
+    'notify.identityLost': 'Der gespeicherte Schlüssel war nicht lesbar, deshalb wurde ein neuer angelegt. Gekoppelte Geräte erkennen dieses hier nicht mehr — es muss neu gekoppelt werden.',
+    'notify.identityUnstable': 'Der Schlüssel ließ sich nicht dauerhaft sichern. Dieses Gerät bekommt bei jedem Start eine neue Anschrift, bis das behoben ist.'
   },
 
   /* ------------------------------- FR ------------------------------- */
@@ -543,7 +549,10 @@ const I18N = {
     'notify.messageTitle': 'Nouveau message de {0}',
     'notify.messageBody': '{0}',
     'notify.refusedTitle': 'Appel refusé',
-    'notify.refusedBody': '{0}'
+    'notify.refusedBody': '{0}',
+    'notify.identityTitle': 'Cet appareil a une nouvelle adresse',
+    'notify.identityLost': 'La clé enregistrée était illisible, une nouvelle a donc été créée. Les appareils jumelés ne reconnaissent plus celui-ci — il faut le jumeler à nouveau.',
+    'notify.identityUnstable': 'La clé n’a pas pu être conservée durablement. Cet appareil recevra une nouvelle adresse à chaque démarrage tant que ce problème persiste.'
   }
 };
 

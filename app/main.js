@@ -434,6 +434,25 @@ function recordReceiveHistory(address, info, e) {
  * die kann ja gerade zu sein.
  */
 function handleNodeEvent(e) {
+  // Die eigene Kennung ist verloren oder haelt nicht. Das darf nicht
+  // still geschehen: es macht jede bestehende Kopplung wertlos, die
+  // Gegenstellen sehen ab jetzt ein fremdes Geraet, und jeder muss neu
+  // koppeln. Wer das erlebt, soll erfahren WARUM - und nicht raten,
+  // wieso seine Anschrift schon wieder eine andere ist.
+  //
+  // Eine Mitteilung des Systems statt eines Fensterhinweises: der Fall
+  // tritt beim Start ein, oft bevor jemand hinsieht, und er ist selten
+  // genug, dass er eine verdient.
+  if (e.type === 'identity') {
+    console.error(`[SNAPKEY] Kennung ${e.state}: ${e.message || ''}`);
+    const lang = currentLang();
+    benachrichtigen(
+      t(lang, 'notify.identityTitle'),
+      t(lang, e.state === 'fluechtig' ? 'notify.identityUnstable' : 'notify.identityLost'),
+      () => showWindow('settings')
+    );
+  }
+
   if (e.type === 'accepted') {
     anrufEintrag(e.from).address = e.address;
   }
@@ -788,6 +807,38 @@ ipcMain.handle('finder:remove', () => {
 });
 
 /* -------------------------------- Start/Ende -------------------------------- */
+
+/* --------------------------- Nur einmal --------------------------- */
+
+/**
+ * Ein zweiter Start bringt das bestehende Fenster nach vorn, statt ein
+ * zweites SNAPKEY danebenzustellen.
+ *
+ * Das ist keine Kosmetik. SNAPKEY lebt in der Menueleiste weiter, wenn
+ * man das Fenster schliesst - wer die Verknuepfung dann noch einmal
+ * anklickt, weil er kein Fenster sieht, hatte bisher zwei laufende
+ * Knoten auf demselben Ordner. Beide fuehrten ihre eigene Liste der
+ * Gegenstellen, und wer als Zweiter koppelte, schrieb die des Ersten
+ * weg. Der Store haelt das inzwischen aus (siehe aendern() in
+ * store.js), aber gar nicht erst zweimal zu laufen ist die
+ * ehrlichere Loesung - zwei Knoten auf einem Port und einer Kennung
+ * sind auch sonst nichts, was jemand will.
+ *
+ * Muss VOR app.whenReady() stehen: die zweite Instanz soll sich
+ * beenden, bevor sie irgendetwas oeffnet.
+ */
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (_e, argv) => {
+    showWindow();
+    // Der zweite Start kam vielleicht ueber "Oeffnen mit" - dann
+    // stecken Pfade in seinen Argumenten, und die gehoeren hierher
+    // statt verloren zu gehen.
+    const pfade = argv.slice(1).filter((a) => !a.startsWith('-') && fs.existsSync(a));
+    if (pfade.length) queueFiles(pfade);
+  });
+}
 
 app.whenReady().then(async () => {
   settings.init(app.getPath('userData'));
