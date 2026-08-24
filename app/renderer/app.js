@@ -438,10 +438,37 @@ function jobPercent(job) {
   return 0;
 }
 
+/**
+ * Was an einer Karte NICHT durch blosses Nachfuehren zu aendern ist.
+ *
+ * Solange diese Kennung gleich bleibt, hat die Karte dieselben Bausteine
+ * und wird in renderJobs() nur nachgefuehrt statt neu gebaut. Aendert
+ * sie sich (fertig geworden, Fehler dazugekommen, Groesse erstmals
+ * bekannt), wird die Karte einmal frisch gebaut - das ist der seltene
+ * Fall, und einmal blinzeln beim Zustandswechsel ist kein Flackern.
+ */
+function jobShape(job) {
+  return [
+    job.state,
+    job.kind,
+    Boolean(job.error),
+    Boolean(job.outDir),
+    Boolean(job.route),
+    Boolean(job.totalBytes),
+    // Die Sprache gehoert dazu: Zustandswort und Weg-Beschriftung stehen
+    // fest in der Karte. Ohne diesen Teil bliebe nach einem
+    // Sprachwechsel mitten in der Uebertragung die alte Sprache stehen -
+    // beim Vollneubau von frueher konnte das nicht passieren.
+    state.lang
+  ].join('|');
+}
+
 function jobEl(job) {
   const card = el('div', 'job');
   card.dataset.state = job.state;
   card.dataset.kind = job.kind === 'refused' ? 'receive' : job.kind;
+  card.dataset.jobId = String(job.id);
+  card.dataset.shape = jobShape(job);
 
   const top = el('div', 'job__top');
   top.append(el('span', 'job__name', job.title || job.id));
@@ -462,8 +489,9 @@ function jobEl(job) {
     read.append(el('span', 'pct', `${pct}%`));
     if (job.totalBytes) {
       const gezeigt = job.state === 'done' ? job.totalBytes : (job.doneBytes || 0);
-      read.append(el('span', null, `${bytes(gezeigt)} / ${bytes(job.totalBytes)}`));
+      read.append(el('span', 'job__bytes', `${bytes(gezeigt)} / ${bytes(job.totalBytes)}`));
     }
+    if (job.state === 'running') read.append(el('span', 'job__tempo', tempoText(job)));
     if (job.route) read.append(el('span', null, T('job.routeLabel', T(ROUTE_KEY[job.route] || job.route))));
     card.append(read);
 
@@ -498,17 +526,70 @@ function jobEl(job) {
   return card;
 }
 
+/** Fuehrt die Zahlen einer bestehenden Karte nach, ohne sie anzufassen. */
+function jobElNachfuehren(card, job) {
+  const pct = jobPercent(job);
+
+  const fill = card.querySelector('.job__fill');
+  if (fill) fill.style.width = `${pct}%`;
+
+  const pctEl = card.querySelector('.pct');
+  if (pctEl) pctEl.textContent = `${pct}%`;
+
+  const bytesEl = card.querySelector('.job__bytes');
+  if (bytesEl && job.totalBytes) {
+    const gezeigt = job.state === 'done' ? job.totalBytes : (job.doneBytes || 0);
+    bytesEl.textContent = `${bytes(gezeigt)} / ${bytes(job.totalBytes)}`;
+  }
+
+  const tempoEl = card.querySelector('.job__tempo');
+  if (tempoEl) tempoEl.textContent = tempoText(job);
+}
+
+/**
+ * Bringt eine Kartenspalte auf den Stand der Aufgaben - OHNE sie
+ * abzureissen.
+ *
+ * Frueher stand hier textContent = '' und ein Neubau jeder Karte. Bei
+ * einem gemessenen Fortschrittstakt von 76 ms hiess das: dreizehnmal
+ * je Sekunde wurden Balken, Texte und Knoepfe weggeworfen und neu
+ * erzeugt - das war das Flackern waehrend einer Uebertragung. Jetzt
+ * wird eine Karte nur neu gebaut, wenn sich ihr Aufbau aendert (siehe
+ * jobShape); sonst werden nur die Zahlen nachgefuehrt.
+ */
+function jobBoxAbgleichen(box, jobs) {
+  const vorhanden = new Map();
+  for (const kind of box.children) vorhanden.set(kind.dataset.jobId, kind);
+
+  const gewollt = jobs.map((job) => {
+    const karte = vorhanden.get(String(job.id));
+    if (karte && karte.dataset.shape === jobShape(job)) {
+      jobElNachfuehren(karte, job);
+      return karte;
+    }
+    return jobEl(job);
+  });
+
+  const bleiben = new Set(gewollt);
+  for (const karte of vorhanden.values()) {
+    if (!bleiben.has(karte)) karte.remove();
+  }
+
+  // Reihenfolge herstellen, aber nur dort eingreifen, wo sie nicht
+  // stimmt - ein insertBefore auf die eigene Position ist zwar
+  // harmlos, aber jeder unnoetige Eingriff ist einer zu viel.
+  gewollt.forEach((karte, i) => {
+    if (box.children[i] !== karte) box.insertBefore(karte, box.children[i] || null);
+  });
+}
+
 function renderJobs() {
   const alle = [...state.jobs.values()].sort((a, b) => b.ts - a.ts);
 
-  const sendBox = $('#sendJobs');
-  sendBox.textContent = '';
-  alle.filter((j) => j.kind === 'send').forEach((j) => sendBox.append(jobEl(j)));
+  jobBoxAbgleichen($('#sendJobs'), alle.filter((j) => j.kind === 'send'));
 
-  const recvBox = $('#recvJobs');
-  recvBox.textContent = '';
   const recvJobs = alle.filter((j) => j.kind === 'receive' || j.kind === 'refused');
-  recvJobs.forEach((j) => recvBox.append(jobEl(j)));
+  jobBoxAbgleichen($('#recvJobs'), recvJobs);
   $('#recvEmpty').hidden = recvJobs.length > 0;
 }
 
@@ -519,6 +600,48 @@ function ensureJob(id, kind) {
     state.jobs.set(id, job);
   }
   return job;
+}
+
+/**
+ * Haelt fest, wie schnell es gerade vorangeht.
+ *
+ * Gleitendes Fenster von drei Sekunden statt Gesamtschnitt: der
+ * Gesamtschnitt schleppt den langsamen Anfang (Handschlag, Plan) ewig
+ * mit und zeigt nach einer Stau-Minute noch lange Unsinn. Das Fenster
+ * sagt, was die Leitung JETZT tut - das ist die Zahl, nach der man
+ * entscheidet, ob man wartet oder abbricht.
+ */
+function merkeTempo(job) {
+  const jetzt = performance.now();
+  if (!job.tempoProben) job.tempoProben = [];
+  job.tempoProben.push({ t: jetzt, b: job.doneBytes || 0 });
+  while (job.tempoProben.length > 2 && jetzt - job.tempoProben[0].t > 3000) job.tempoProben.shift();
+
+  const erste = job.tempoProben[0];
+  const dt = (jetzt - erste.t) / 1000;
+  // Unter 300 ms Messstrecke ist die Zahl nur Rauschen - dann lieber
+  // die letzte stehen lassen als eine zappelnde anzeigen.
+  if (dt >= 0.3) job.rate = ((job.doneBytes || 0) - erste.b) / dt;
+}
+
+/** Sekunden als Uhrzeit-Rest: 4:07, oder 1:04:07 wenn es laenger dauert. */
+function dauerText(sekunden) {
+  const s = Math.max(0, Math.round(sekunden));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const rest = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${rest}` : `${m}:${rest}`;
+}
+
+/** "12.3 MB/s · noch 0:42" - oder leer, wenn es nichts Ehrliches zu sagen gibt. */
+function tempoText(job) {
+  if (job.state !== 'running' || !job.rate || job.rate < 1) return '';
+  let text = T('job.rate', bytes(job.rate));
+  if (job.totalBytes) {
+    const offen = Math.max(0, job.totalBytes - (job.doneBytes || 0));
+    text += ` · ${T('job.timeLeft', dauerText(offen / job.rate))}`;
+  }
+  return text;
 }
 
 /* ------------------------------ Einstellungen ------------------------------ */
@@ -956,6 +1079,7 @@ function handleNodeEvent(e) {
       const job = ensureJob(e.from, 'receive');
       job.doneBytes = (job.doneBytes || 0) + e.bytes;
       job.doneChunks = e.done;
+      merkeTempo(job);
       renderJobs();
       break;
     }
@@ -1029,6 +1153,7 @@ function handleSendProgress(e) {
     case 'sent':
       job.doneBlocks = e.done;
       job.doneBytes = (job.doneBytes || 0) + e.bytes;
+      merkeTempo(job);
       break;
     default: break;
   }
