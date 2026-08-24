@@ -176,6 +176,11 @@ async function open({
    * Kein eigenes Vorwort im Protokoll - genau diese eine Nachricht ist
    * die Weiche.
    */
+  // Laufende Datei-Empfaenge, nach Anrufkennung. Damit laesst sich ein
+  // einzelner Empfang von aussen anhalten, ohne die anderen zu
+  // beruehren - jede Verbindung ist ihr eigener Ablauf.
+  const eingehende = new Map();
+
   async function alsAnruf(transport, von) {
     onEvent({ type: 'incoming', from: von });
 
@@ -210,9 +215,13 @@ async function open({
         }, erste);
         onEvent({ type: 'talked', address, count: res.received, from: von });
       } else {
+        const anhalter = new AbortController();
+        eingehende.set(von, anhalter);
+
         const res = await session.receiveOn(handshake, {
           dir: outDir,
           dedup,
+          signal: anhalter.signal,
           // Die Anschrift kommt dazu, damit die Frage einen Absender
           // hat - der Name, falls die Gegenstelle als Geraet bekannt
           // ist. Wer sie ablehnt, laesst keinen Rest zurueck: bis zur
@@ -232,6 +241,7 @@ async function open({
     } catch (err) {
       onEvent({ type: 'refused', from: von, message: err.message, code: err.code });
     } finally {
+      eingehende.delete(von);
       transport.close();
     }
   }
@@ -422,8 +432,8 @@ async function open({
     return echt;
   }
 
-  /** Schickt Pfade an eine Gegenstelle. */
-  async function sendTo(ziel, paths, { onProgress = () => {} } = {}) {
+  /** Schickt Pfade an eine Gegenstelle. `signal` haelt die Sendung an (siehe session.send). */
+  async function sendTo(ziel, paths, { onProgress = () => {}, signal = null } = {}) {
     const { identityMod, address, erwartet } = zielPruefen(ziel);
 
     const files = chunks.scan(paths);
@@ -437,6 +447,7 @@ async function open({
         identity: me,
         expect: erwartet,
         files,
+        signal,
         onEvent: (e) => {
           if (e.type === 'secure') schluesselPruefen(identityMod, address, ziel, e);
           onProgress(e);
@@ -498,6 +509,19 @@ async function open({
     get autoScan() { return beacon ? beacon.auto : false; },
     scan: () => (beacon ? beacon.jetztRufen() : false),
     setAutoScan: (an) => (beacon ? beacon.setAuto(an) : false),
+
+    /**
+     * Haelt einen laufenden Empfang an. Was schon dalag, bleibt liegen
+     * - schickt die Gegenstelle spaeter erneut, geht nur der Rest
+     * ueber die Leitung. false, wenn unter dieser Kennung gerade
+     * nichts laueft.
+     */
+    stopIncoming(from) {
+      const anhalter = eingehende.get(from);
+      if (!anhalter) return false;
+      anhalter.abort(Object.assign(new Error('Übertragung angehalten'), { code: 'STOPPED' }));
+      return true;
+    },
 
     sendTo,
     say,

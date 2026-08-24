@@ -18,7 +18,11 @@ contextBridge.exposeInMainWorld('snapkey', {
   scan: () => ipcRenderer.invoke('node:scan'),
   settings: () => ipcRenderer.invoke('node:settings'),
   setSetting: (patch) => ipcRenderer.invoke('node:setSetting', patch),
-  send: (ziel, paths) => ipcRenderer.invoke('node:send', { ziel, paths }),
+  // `id` ist die Aufgabenkennung der Oberflaeche - sie kommt in jeder
+  // Fortschrittsmeldung zurueck und ist der Griff fuer sendStop.
+  send: (ziel, paths, id) => ipcRenderer.invoke('node:send', { ziel, paths, id }),
+  sendStop: (id, art) => ipcRenderer.invoke('node:sendStop', { id, art }),
+  recvStop: (from) => ipcRenderer.invoke('node:recvStop', { from }),
   pair: (address) => ipcRenderer.invoke('node:pair', address),
   forget: (address) => ipcRenderer.invoke('node:forget', address),
 

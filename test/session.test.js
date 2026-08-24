@@ -63,7 +63,8 @@ const ERWARTET = [
 
 /** Ein Durchlauf. Gibt zurueck, was beide Seiten am Ende sagen. */
 async function lauf(root, ziel, {
-  sender, empfaenger, gekoppelt = true, cutAfter = Infinity, sliceSize = 0, dedup = true, approve = null
+  sender, empfaenger, gekoppelt = true, cutAfter = Infinity, sliceSize = 0, dedup = true, approve = null,
+  signalSenden = null, signalEmpfangen = null, onSendEvent = () => {}, onReceiveEvent = () => {}
 } = {}) {
   const leitung = memory.pair({ cutAfter, sliceSize });
   const files = chunks.scan([root]);
@@ -71,14 +72,18 @@ async function lauf(root, ziel, {
   const senden = session.send(leitung.a, {
     identity: sender,
     expect: gekoppelt ? empfaenger.pub : null,
-    files
+    files,
+    signal: signalSenden,
+    onEvent: onSendEvent
   });
   const empfangen = session.receive(leitung.b, {
     identity: empfaenger,
     expect: gekoppelt ? sender.pub : null,
     dir: ziel,
     dedup,
-    approve
+    approve,
+    signal: signalEmpfangen,
+    onEvent: onReceiveEvent
   });
 
   const [s, e] = await Promise.allSettled([senden, empfangen]);
@@ -431,4 +436,101 @@ test('wirft die Einwilligung selbst, endet es wie ein Nein - nicht wie ein Abstu
   assert.equal(e.status, 'rejected');
   assert.equal(s.status, 'rejected');
   assert.equal(fs.existsSync(ziel), false);
+});
+
+/* --------------------------- Anhalten und Stoppen --------------------------- */
+
+test('der Sender haelt mitten im Satz an - und der zweite Anlauf holt nur den Rest', async (t) => {
+  const dir = tempdir(t);
+  const root = quelle(dir);
+  const ziel = path.join(dir, 'ziel');
+
+  const sender = identity.create();
+  const empfaenger = identity.create();
+
+  // --- Erster Anlauf, nach dem zweiten Block angehalten ---
+  const anhalter = new AbortController();
+  const erst = await lauf(root, ziel, {
+    sender, empfaenger,
+    signalSenden: anhalter.signal,
+    onSendEvent: (e) => {
+      if (e.type === 'sent' && e.done === 2) {
+        anhalter.abort(Object.assign(new Error('Übertragung angehalten'), { code: 'PAUSED' }));
+      }
+    }
+  });
+
+  assert.equal(erst.s.status, 'rejected', 'das Anhalten blieb unbemerkt');
+  assert.equal(erst.s.reason.code, 'PAUSED', 'der Grund ging verloren');
+
+  // Der Empfaenger erfaehrt es als Begruendung, nicht als tote Leitung.
+  assert.equal(erst.e.status, 'rejected');
+  assert.match(erst.e.reason.message, /angehalten/);
+
+  const angefangen = chunks.scan([ziel]).reduce((n, f) => n + f.size, 0);
+  assert.ok(angefangen > 0, 'es kam gar nichts an - vor dem ersten Block angehalten?');
+  assert.ok(!heil(ziel, root), 'es kam schon alles an - das Anhalten kam zu spät');
+
+  // --- Fortsetzen: dieselben Seiten, frische Leitung ---
+  const zweit = await lauf(root, ziel, { sender, empfaenger });
+
+  assert.equal(zweit.s.status, 'fulfilled', zweit.s.reason && zweit.s.reason.message);
+  assert.equal(zweit.e.value.ok, true);
+  assert.ok(heil(ziel, root), 'nach dem Fortsetzen stimmt der Inhalt nicht');
+
+  await t.test('angehalten hat nichts gekostet - es wurde nur der Rest geschickt', () => {
+    const alle = chunks.totalChunks(chunks.buildManifest(chunks.scan([root])));
+    assert.ok(zweit.s.value.sent < alle, `wieder alle ${alle} Blöcke - nichts wiederverwendet`);
+    assert.ok(zweit.e.value.had > 0, 'der Empfänger hat nichts vom ersten Anlauf behalten');
+  });
+});
+
+test('der Empfaenger haelt an - der Sender erfaehrt den Grund, und nichts geht verloren', async (t) => {
+  const dir = tempdir(t);
+  const root = quelle(dir);
+  const ziel = path.join(dir, 'ziel');
+
+  const sender = identity.create();
+  const empfaenger = identity.create();
+
+  const anhalter = new AbortController();
+  const erst = await lauf(root, ziel, {
+    sender, empfaenger,
+    signalEmpfangen: anhalter.signal,
+    onReceiveEvent: (e) => {
+      if (e.type === 'taken' && e.done === 2) {
+        anhalter.abort(Object.assign(new Error('Übertragung angehalten'), { code: 'STOPPED' }));
+      }
+    }
+  });
+
+  assert.equal(erst.e.status, 'rejected');
+  assert.equal(erst.e.reason.code, 'STOPPED');
+  assert.equal(erst.s.status, 'rejected');
+  assert.match(erst.s.reason.message, /angehalten/);
+
+  // Was schon da war, liegt noch da - der naechste Anlauf baut darauf auf.
+  const zweit = await lauf(root, ziel, { sender, empfaenger });
+  assert.equal(zweit.e.value.ok, true);
+  assert.ok(heil(ziel, root));
+  assert.ok(zweit.e.value.had > 0, 'der Empfänger hat nichts vom ersten Anlauf behalten');
+});
+
+test('ein schon abgebrochenes Signal laesst gar nicht erst senden', async (t) => {
+  const dir = tempdir(t);
+  const root = quelle(dir);
+  const ziel = path.join(dir, 'ziel');
+
+  const anhalter = new AbortController();
+  anhalter.abort(Object.assign(new Error('Übertragung abgebrochen'), { code: 'STOPPED' }));
+
+  const { s } = await lauf(root, ziel, {
+    sender: identity.create(),
+    empfaenger: identity.create(),
+    signalSenden: anhalter.signal
+  });
+
+  assert.equal(s.status, 'rejected');
+  assert.equal(s.reason.code, 'STOPPED');
+  assert.equal(fs.existsSync(ziel), false, 'es wurde trotzdem etwas geschrieben');
 });

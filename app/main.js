@@ -529,7 +529,14 @@ ipcMain.handle('node:scan', () => {
   return buildPeerList();
 });
 
-ipcMain.handle('node:send', async (_e, { ziel, paths }) => {
+// Laufende Sendungen, nach der Aufgabenkennung des Fensters. Mehrere
+// gleichzeitig sind ausdruecklich erlaubt - jede hat ihren eigenen
+// Anhalter und ihre eigenen Fortschrittsmeldungen (die Kennung reist in
+// jedem Ereignis mit, sonst waeren zwei parallele Sendungen in der
+// Anzeige nicht auseinanderzuhalten).
+const laufendeSendungen = new Map();
+
+ipcMain.handle('node:send', async (_e, { ziel, paths, id }) => {
   if (!node) return { ok: false, message: 'Der Knoten ist nicht bereit.' };
 
   let zielAngabe;
@@ -539,17 +546,46 @@ ipcMain.handle('node:send', async (_e, { ziel, paths }) => {
     return { ok: false, message: err.message, code: err.code };
   }
 
+  const anhalter = new AbortController();
+  if (id) laufendeSendungen.set(id, anhalter);
+
   try {
     const res = await node.sendTo(zielAngabe, paths, {
-      onProgress: (e) => { if (win) win.webContents.send('send:progress', e); }
+      signal: anhalter.signal,
+      onProgress: (e) => { if (win) win.webContents.send('send:progress', { id, ...e }); }
     });
     recordSendHistory(zielAngabe, paths, res, null);
     return res;
   } catch (err) {
-    recordSendHistory(zielAngabe, paths, null, err);
+    // Eine Pause ist kein Vorfall - in den Verlauf gehoeren Ergebnisse
+    // und Fehlschlaege, nicht jede Unterbrechung, die gleich fortgesetzt
+    // wird.
+    if (err.code !== 'PAUSED') recordSendHistory(zielAngabe, paths, null, err);
     return { ok: false, message: err.message, code: err.code };
+  } finally {
+    if (id) laufendeSendungen.delete(id);
   }
 });
+
+/**
+ * Haelt eine laufende Sendung an. `art` unterscheidet nur die
+ * Begruendung, die beide Seiten zu sehen bekommen - technisch endet in
+ * beiden Faellen diese Verbindung, und die Blockwiedererkennung macht
+ * aus einem spaeteren erneuten Senden die Fortsetzung.
+ */
+ipcMain.handle('node:sendStop', (_e, { id, art } = {}) => {
+  const anhalter = laufendeSendungen.get(id);
+  if (!anhalter) return false;
+
+  const pause = art === 'pause';
+  anhalter.abort(Object.assign(
+    new Error(pause ? 'Übertragung angehalten' : 'Übertragung abgebrochen'),
+    { code: pause ? 'PAUSED' : 'STOPPED' }
+  ));
+  return true;
+});
+
+ipcMain.handle('node:recvStop', (_e, { from } = {}) => (node ? node.stopIncoming(from) : false));
 
 ipcMain.handle('node:say', async (_e, { ziel, texte }) => {
   if (!node) return { ok: false, message: 'Der Knoten ist nicht bereit.' };

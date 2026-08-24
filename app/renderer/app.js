@@ -31,8 +31,6 @@ const state = {
   meetNote: null,
   portmapNote: null,
   finder: { supported: false, installed: false },
-  sendRunning: false,
-  currentSendJob: null,
 
   chats: [],               // [{address, name, anzahl, letzte, gekoppelt}]
   chatSelected: null,       // Anschrift, mit der die Nachrichtenansicht gerade offen ist
@@ -474,7 +472,8 @@ function jobEl(job) {
   top.append(el('span', 'job__name', job.title || job.id));
   const stateKey = job.state === 'running' ? 'job.stateRunning'
     : job.state === 'asking' ? 'job.stateAsking'
-      : (job.state === 'done' ? 'job.stateDone' : 'job.stateFailed');
+      : job.state === 'paused' ? 'job.statePaused'
+        : (job.state === 'done' ? 'job.stateDone' : 'job.stateFailed');
   top.append(el('span', 'job__state', T(stateKey)));
   card.append(top);
 
@@ -551,6 +550,51 @@ function jobEl(job) {
       if (job.recovered) extra.append(el('span', null, T('job.recovered', job.recovered)));
       card.append(extra);
     }
+  }
+
+  // Die Zuegel: eine laufende Sendung laesst sich anhalten (Pause,
+  // fortsetzbar) oder abbrechen; ein laufender Empfang nur abbrechen -
+  // fortsetzen kann von hier aus niemand, das muss der Sender tun.
+  // "Anhalten" heisst technisch beides Mal: diese Verbindung endet,
+  // und die Blockwiedererkennung macht aus dem naechsten Anlauf die
+  // Fortsetzung. Verloren geht nichts.
+  if (job.state === 'running') {
+    const acts = el('div', 'job__acts');
+    if (job.kind === 'send') {
+      const pauseBtn = el('button', 'btn btn--ghost btn--sm', T('job.pause'));
+      pauseBtn.type = 'button';
+      pauseBtn.addEventListener('click', () => api.sendStop(job.id, 'pause'));
+      acts.append(pauseBtn);
+
+      const stopBtn = el('button', 'btn btn--ghost btn--sm', T('job.stop'));
+      stopBtn.type = 'button';
+      stopBtn.addEventListener('click', () => api.sendStop(job.id, 'stop'));
+      acts.append(stopBtn);
+    } else if (job.kind === 'receive') {
+      const stopBtn = el('button', 'btn btn--ghost btn--sm', T('job.stop'));
+      stopBtn.type = 'button';
+      stopBtn.addEventListener('click', () => api.recvStop(job.id));
+      acts.append(stopBtn);
+    }
+    if (acts.childElementCount) card.append(acts);
+  }
+
+  // Pausiert: fortsetzen oder die Karte verwerfen. Verwerfen loescht
+  // nur die Karte - was schon drueben liegt, bleibt dort und wird beim
+  // naechsten Senden an dieselbe Stelle wiederverwendet.
+  if (job.state === 'paused' && job.kind === 'send') {
+    const acts = el('div', 'job__acts');
+    const weiterBtn = el('button', 'btn btn--go btn--sm', T('job.resume'));
+    weiterBtn.type = 'button';
+    weiterBtn.addEventListener('click', () => sendeLauf(job));
+    const wegBtn = el('button', 'btn btn--ghost btn--sm', T('job.discard'));
+    wegBtn.type = 'button';
+    wegBtn.addEventListener('click', () => {
+      state.jobs.delete(job.id);
+      renderJobs();
+    });
+    acts.append(weiterBtn, wegBtn);
+    card.append(acts);
   }
 
   if (job.error) card.append(el('div', 'job__err', job.error));
@@ -1208,7 +1252,9 @@ function handleNodeEvent(e) {
 }
 
 function handleSendProgress(e) {
-  const job = state.currentSendJob;
+  // Die Kennung reist in jedem Ereignis mit - mehrere Sendungen laufen
+  // nebeneinander, und jede Meldung muss zu ihrer Karte finden.
+  const job = e.id && state.jobs.get(e.id);
   if (!job) return;
   switch (e.type) {
     case 'route': job.route = e.route; break;
@@ -1226,8 +1272,49 @@ function handleSendProgress(e) {
 
 /* ---------------------------------- Senden --------------------------------- */
 
+/**
+ * Laesst eine Sendung laufen, bis sie fertig, gescheitert oder
+ * angehalten ist. Auch die Fortsetzung einer Pause laeuft hier durch -
+ * dieselbe Aufgabe, derselbe Ablauf, nur ein frischer Anlauf: die
+ * Blockwiedererkennung der Gegenseite macht daraus von selbst "nur der
+ * Rest".
+ */
+async function sendeLauf(job) {
+  job.state = 'running';
+  job.error = null;
+  job.doneBytes = 0;
+  job.tempoProben = [];
+  job.rate = 0;
+  renderJobs();
+
+  try {
+    const res = await api.send(job.ziel, job.paths, job.id);
+    if (res.ok) {
+      job.state = 'done';
+      job.resultSent = res.sent;
+      job.route = res.route || job.route;
+    } else if (res.code === 'PAUSED') {
+      // Kein Fehlschlag: die Karte bleibt stehen und bietet das
+      // Fortsetzen an. Der Stand ist bei der Gegenseite gesichert.
+      job.state = 'paused';
+    } else {
+      job.state = 'failed';
+      job.error = res.message || (res.missing && T('job.missing', res.missing.join(', ')));
+    }
+  } catch (err) {
+    job.state = 'failed';
+    job.error = err.message;
+  } finally {
+    renderJobs();
+    // Senden koppelt: an eine von Hand eingetippte Anschrift geschickt,
+    // und die Gegenstelle steht danach in der Ablage. Ohne das hier
+    // waere sie weder auf der Geraeteseite noch in den Nachrichten zu
+    // sehen - bis zum naechsten Start.
+    refreshGekoppelte();
+  }
+}
+
 async function onSendStart() {
-  if (state.sendRunning) return;
   if (!state.files.length) { toast(T('send.needFiles'), 'bad'); return; }
 
   const deviceAddress = $('#sendDeviceSelect').value;
@@ -1248,37 +1335,22 @@ async function onSendStart() {
     return;
   }
 
-  state.sendRunning = true;
-  $('#sendStart').disabled = true;
-
-  const id = `send-${Date.now()}`;
-  const job = { id, kind: 'send', state: 'running', title, ts: Date.now(), doneBytes: 0 };
+  // Ziel und Pfade wandern in die Aufgabe selbst: das Fortsetzen nach
+  // einer Pause braucht beides noch, lange nachdem die Auswahl unten
+  // laengst einer neuen Sendung gehoert.
+  const id = `send-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const job = {
+    id, kind: 'send', state: 'running', title, ts: Date.now(),
+    doneBytes: 0, ziel, paths: state.files.map((f) => f.path)
+  };
   state.jobs.set(id, job);
-  state.currentSendJob = job;
-  renderJobs();
 
-  const paths = state.files.map((f) => f.path);
+  // Die Auswahl ist verbraucht - wer parallel noch etwas schicken will,
+  // stellt sie sich neu zusammen, waehrend diese Sendung laueft.
+  state.files = [];
+  renderFileList();
 
-  try {
-    const res = await api.send(ziel, paths);
-    job.state = res.ok ? 'done' : 'failed';
-    job.resultSent = res.sent;
-    job.route = res.route || job.route;
-    if (!res.ok) job.error = res.message || (res.missing && T('job.missing', res.missing.join(', ')));
-  } catch (err) {
-    job.state = 'failed';
-    job.error = err.message;
-  } finally {
-    state.currentSendJob = null;
-    state.sendRunning = false;
-    $('#sendStart').disabled = false;
-    renderJobs();
-    // Senden koppelt: an eine von Hand eingetippte Anschrift geschickt,
-    // und die Gegenstelle steht danach in der Ablage. Ohne das hier
-    // waere sie weder auf der Geraeteseite noch in den Nachrichten zu
-    // sehen - bis zum naechsten Start.
-    refreshGekoppelte();
-  }
+  sendeLauf(job);
 }
 
 /* --------------------------------- Verdrahtung -------------------------------- */

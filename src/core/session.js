@@ -243,7 +243,7 @@ function connect(transport, { identity, expect = null, initiator, onEvent = () =
  * Die Liste kann fertig uebergeben werden - beim zweiten Anlauf muss
  * nicht noch einmal alles durchgerechnet werden.
  */
-function send(transport, { identity, expect = null, files, manifest = null, onEvent = () => {} }) {
+function send(transport, { identity, expect = null, files, manifest = null, onEvent = () => {}, signal = null }) {
   let sheet = manifest;
   let sent = 0;
 
@@ -254,14 +254,49 @@ function send(transport, { identity, expect = null, files, manifest = null, onEv
     const fail = (err) => {
       if (settled) return;
       settled = true;
+      if (signal) signal.removeEventListener('abort', angehalten);
       try { transport.close(); } catch { /* egal */ }
       reject(err);
     };
-    const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      if (signal) signal.removeEventListener('abort', angehalten);
+      resolve(v);
+    };
+
+    /**
+     * Von aussen angehalten - Pause oder Stopp, der Unterschied steckt
+     * im mitgegebenen Grund (signal.reason), nicht im Ablauf: beide
+     * beenden diese Verbindung. Fortgesetzt wird durch ein neues
+     * send() - die Blockwiedererkennung der Gegenseite sorgt dafuer,
+     * dass dann nur noch der Rest fliesst. Genau der Mechanismus, der
+     * auch einen echten Leitungsabriss uebersteht.
+     *
+     * Der Gegenseite wird der Grund noch gesagt, bevor aufgelegt wird -
+     * sie soll "angehalten" anzeigen koennen, nicht "Leitung tot".
+     */
+    function angehalten() {
+      const grund = (signal.reason instanceof Error)
+        ? signal.reason
+        : Object.assign(new Error('Übertragung angehalten'), { code: 'STOPPED' });
+      if (channel && channel.keys && sendControl) {
+        try { sendControl({ t: 'error', message: grund.message, code: grund.code || 'STOPPED' }); } catch { /* egal */ }
+      }
+      fail(grund);
+    }
 
     let channel = null;
     let sendControl = null;
     let peer = null;
+
+    // Erst NACH den Deklarationen oben anmelden: ein schon
+    // abgebrochenes Signal ruft angehalten() sofort, und das liest
+    // channel/sendControl.
+    if (signal) {
+      if (signal.aborted) return angehalten();
+      signal.addEventListener('abort', angehalten, { once: true });
+    }
 
     /**
      * Die Bloecke rausgeben, ohne dabei den Speicher vollzulaufen.
@@ -278,6 +313,11 @@ function send(transport, { identity, expect = null, files, manifest = null, onEv
 
       try {
         for (let i = 0; i < want.length; i++) {
+          // Angehalten worden (oder anderweitig beendet): keinen Block
+          // mehr lesen und nichts mehr in eine geschlossene Leitung
+          // schieben.
+          if (settled) return;
+
           const { fileIndex, chunkIndex } = want[i];
           const file = sheet.files[fileIndex];
           const source = files[fileIndex];
@@ -388,7 +428,7 @@ function send(transport, { identity, expect = null, files, manifest = null, onEv
  * beginnt - bei Dateien ist es ein 'manifest', bei einer Nachrichten-
  * sitzung (talk.js) ein 'say' (siehe node.js, die Weiche liegt dort).
  */
-function receiveOn(handshake, { dir, dedup = true, onEvent = () => {}, approve = null }, ersteNachricht) {
+function receiveOn(handshake, { dir, dedup = true, onEvent = () => {}, approve = null, signal = null }, ersteNachricht) {
   const { channel, peer } = handshake;
   const sendControl = handshake.sendControl;
   const transport = channel.transport;
@@ -415,9 +455,32 @@ function receiveOn(handshake, { dir, dedup = true, onEvent = () => {}, approve =
         try { sendControl({ t: 'error', message: err.message, code: err.code || null }); } catch { /* egal */ }
       }
       try { transport.close(); } catch { /* egal */ }
+      if (signal) signal.removeEventListener('abort', angehalten);
       reject(err);
     };
-    const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      if (signal) signal.removeEventListener('abort', angehalten);
+      resolve(v);
+    };
+
+    /**
+     * Von aussen angehalten. fail() sagt der Gegenseite den Grund und
+     * sichert vorher, was schon dalag - der naechste Anlauf des Senders
+     * setzt genau darauf auf. Anhalten verliert also nichts, es
+     * verschiebt nur.
+     */
+    function angehalten() {
+      fail((signal.reason instanceof Error)
+        ? signal.reason
+        : Object.assign(new Error('Übertragung angehalten'), { code: 'STOPPED' }));
+    }
+
+    if (signal) {
+      if (signal.aborted) return angehalten();
+      signal.addEventListener('abort', angehalten, { once: true });
+    }
 
     /**
      * Der Ablauf ab dem Punkt, an dem das Angebot angenommen ist -
@@ -554,7 +617,7 @@ function receiveOn(handshake, { dir, dedup = true, onEvent = () => {}, approve =
   });
 }
 
-function receive(transport, { identity, expect = null, dir, onEvent = () => {}, dedup = true, approve = null }) {
+function receive(transport, { identity, expect = null, dir, onEvent = () => {}, dedup = true, approve = null, signal = null }) {
   return new Promise((resolve, reject) => {
     let settled = false;
     const fail = (err) => {
@@ -569,7 +632,7 @@ function receive(transport, { identity, expect = null, dir, onEvent = () => {}, 
         const weiter = (ersteNachricht) => {
           if (settled) return;
           settled = true;
-          receiveOn(h, { dir, dedup, onEvent, approve }, ersteNachricht).then(resolve, reject);
+          receiveOn(h, { dir, dedup, onEvent, approve, signal }, ersteNachricht).then(resolve, reject);
         };
 
         // Vielleicht liegt die erste Nachricht schon in der
