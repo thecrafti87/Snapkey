@@ -52,6 +52,10 @@ const I18N = {
     'send.offline': 'This device is not online right now.',
 
     'job.stateRunning': 'running',
+    'job.stateAsking': 'waiting for you',
+    'job.offer': '{0} file(s) · {1}',
+    'job.accept': 'Accept',
+    'job.decline': 'Decline',
     'job.stateDone': 'done',
     'job.stateFailed': 'failed',
     'job.routeLabel': 'Route: {0}',
@@ -77,6 +81,7 @@ const I18N = {
     'recv.choose': 'Choose',
     'recv.trustNewLabel': 'New devices',
     'recv.trustNew': 'Accept new devices',
+    'recv.confirm': 'Ask before receiving',
     'recv.empty': 'No transfers yet.',
 
     'msg.kicker': '03 · conversations',
@@ -218,6 +223,10 @@ const I18N = {
     'send.offline': 'Dieses Gerät ist gerade nicht online.',
 
     'job.stateRunning': 'läuft',
+    'job.stateAsking': 'wartet auf dich',
+    'job.offer': '{0} Datei(en) · {1}',
+    'job.accept': 'Annehmen',
+    'job.decline': 'Ablehnen',
     'job.stateDone': 'fertig',
     'job.stateFailed': 'fehlgeschlagen',
     'job.routeLabel': 'Weg: {0}',
@@ -243,6 +252,7 @@ const I18N = {
     'recv.choose': 'Wählen',
     'recv.trustNewLabel': 'Neue Geräte',
     'recv.trustNew': 'Neue Geräte annehmen',
+    'recv.confirm': 'Vor dem Empfang fragen',
     'recv.empty': 'Noch keine Übertragungen.',
 
     'msg.kicker': '03 · Unterhaltungen',
@@ -384,6 +394,10 @@ const I18N = {
     'send.offline': 'Cet appareil n’est pas en ligne actuellement.',
 
     'job.stateRunning': 'en cours',
+    'job.stateAsking': 'attend votre réponse',
+    'job.offer': '{0} fichier(s) · {1}',
+    'job.accept': 'Accepter',
+    'job.decline': 'Refuser',
     'job.stateDone': 'terminé',
     'job.stateFailed': 'échoué',
     'job.routeLabel': 'Voie : {0}',
@@ -409,6 +423,7 @@ const I18N = {
     'recv.choose': 'Choisir',
     'recv.trustNewLabel': 'Nouveaux appareils',
     'recv.trustNew': 'Accepter les nouveaux appareils',
+    'recv.confirm': 'Demander avant de recevoir',
     'recv.empty': 'Aucun envoi pour le moment.',
 
     'msg.kicker': '03 · conversations',

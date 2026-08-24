@@ -31,6 +31,10 @@ const DEFAULTS = {
   // node:setSetting in main.js), ein Neustart waere hier unnoetig
   // grob - er risse jede laufende Uebertragung mit ab.
   autoScan: true,
+  // Vor dem Empfang fragen. Steht wie autoScan NICHT in NODE_FELDER:
+  // der Einwilligungs-Haken in main.js sieht bei jeder Frage selbst
+  // nach, ein Neustart des Knotens waere fuer diesen Schalter unnoetig.
+  confirmReceive: true,
   // Beide betreffen nur die Huelle (Menueleistensymbol, Mitteilungen),
   // nicht den Knoten - deshalb auch nicht in NODE_FELDER unten.
   tray: true,

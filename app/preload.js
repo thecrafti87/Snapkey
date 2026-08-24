@@ -22,6 +22,10 @@ contextBridge.exposeInMainWorld('snapkey', {
   pair: (address) => ipcRenderer.invoke('node:pair', address),
   forget: (address) => ipcRenderer.invoke('node:forget', address),
 
+  // Antwort auf eine Empfangsfrage - die Frage selbst kommt ueber
+  // onReceiveAsk unten.
+  receiveAnswer: (id, ok) => ipcRenderer.invoke('receive:answer', { id, ok }),
+
   say: (ziel, texte) => ipcRenderer.invoke('node:say', { ziel, texte }),
   chats: () => ipcRenderer.invoke('node:chats'),
   messages: (address) => ipcRenderer.invoke('node:messages', address),
@@ -78,6 +82,14 @@ contextBridge.exposeInMainWorld('snapkey', {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on('update:progress', handler);
     return () => ipcRenderer.removeListener('update:progress', handler);
+  },
+
+  // Eine eingehende Uebertragung wartet auf Einwilligung - siehe
+  // uebertragungErfragen() in main.js.
+  onReceiveAsk: (fn) => {
+    const handler = (_e, frage) => fn(frage);
+    ipcRenderer.on('receive:ask', handler);
+    return () => ipcRenderer.removeListener('receive:ask', handler);
   },
 
   // Die stille Pruefung kurz nach dem Start hat etwas gefunden. Kommt

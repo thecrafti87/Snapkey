@@ -388,7 +388,7 @@ function send(transport, { identity, expect = null, files, manifest = null, onEv
  * beginnt - bei Dateien ist es ein 'manifest', bei einer Nachrichten-
  * sitzung (talk.js) ein 'say' (siehe node.js, die Weiche liegt dort).
  */
-function receiveOn(handshake, { dir, dedup = true, onEvent = () => {} }, ersteNachricht) {
+function receiveOn(handshake, { dir, dedup = true, onEvent = () => {}, approve = null }, ersteNachricht) {
   const { channel, peer } = handshake;
   const sendControl = handshake.sendControl;
   const transport = channel.transport;
@@ -419,6 +419,46 @@ function receiveOn(handshake, { dir, dedup = true, onEvent = () => {} }, ersteNa
     };
     const finish = (v) => { if (!settled) { settled = true; resolve(v); } };
 
+    /**
+     * Der Ablauf ab dem Punkt, an dem das Angebot angenommen ist -
+     * herausgezogen, weil zwischen Angebot und diesem Punkt jetzt eine
+     * Einwilligung liegen kann (siehe unten im 'manifest'-Zweig).
+     */
+    const angenommen = () => {
+      if (settled) return;
+
+      // Hier entsteht das Fortsetzen: nachsehen, was schon daliegt.
+      onEvent({ type: 'checking' });
+      let { want, have, total } = chunks.missing(sheet, dir, (n) => onEvent({ type: 'checked', bytes: n }));
+      had = have;
+
+      // Bevor die Wunschliste rausgeht: der Inhalt liegt vielleicht
+      // schon woanders im Zielordner - umbenannt, verschoben, oder
+      // als zweite Fassung eines Ordners mit wenig Aenderung. Das
+      // muss dann nicht mehr ueber die Leitung.
+      if (dedup && want.length) {
+        const geholt = chunks.recover(sheet, dir, want);
+        recovered = geholt.recovered;
+        want = geholt.want;
+        if (recovered > 0 || geholt.truncated) {
+          onEvent({ type: 'recovered', count: recovered, scanned: geholt.scanned, truncated: geholt.truncated });
+        }
+      }
+
+      onEvent({ type: 'plan', total, have, need: want.length });
+
+      sink = new chunks.Sink(sheet, dir);
+      sendControl({ t: 'want', want });
+      if (!want.length) {
+        // Nichts zu holen - trotzdem sauber abschliessen, damit die
+        // Dateien auf die richtige Laenge kommen.
+        sink.close();
+        sink = null;
+        sendControl({ t: 'done', ok: true, missing: [] });
+        finish({ ok: true, taken: 0, had, recovered, peer, missing: [] });
+      }
+    };
+
     const handleControl = (msg) => {
       if (msg.t === 'manifest') {
         sheet = msg.manifest;
@@ -426,36 +466,31 @@ function receiveOn(handshake, { dir, dedup = true, onEvent = () => {} }, ersteNa
 
         onEvent({ type: 'offered', files: sheet.files.length, bytes: chunks.totalBytes(sheet) });
 
-        // Hier entsteht das Fortsetzen: nachsehen, was schon daliegt.
-        onEvent({ type: 'checking' });
-        let { want, have, total } = chunks.missing(sheet, dir, (n) => onEvent({ type: 'checked', bytes: n }));
-        had = have;
+        // Ohne Einwilligungs-Haken laeuft alles wie bisher: sofort
+        // weiter. Mit ihm wird erst gefragt - der Sender wartet in
+        // dieser Zeit einfach auf die want-Nachricht, die Verbindung
+        // traegt das (kein Timeout auf einer stehenden Verbindung,
+        // siehe tcp.js). Bis zur Antwort ist noch kein Byte Nutzlast
+        // geflossen und nichts auf die Platte geschrieben - genau
+        // deshalb sitzt die Frage HIER und nicht spaeter.
+        if (!approve) return angenommen();
 
-        // Bevor die Wunschliste rausgeht: der Inhalt liegt vielleicht
-        // schon woanders im Zielordner - umbenannt, verschoben, oder
-        // als zweite Fassung eines Ordners mit wenig Aenderung. Das
-        // muss dann nicht mehr ueber die Leitung.
-        if (dedup && want.length) {
-          const geholt = chunks.recover(sheet, dir, want);
-          recovered = geholt.recovered;
-          want = geholt.want;
-          if (recovered > 0 || geholt.truncated) {
-            onEvent({ type: 'recovered', count: recovered, scanned: geholt.scanned, truncated: geholt.truncated });
-          }
-        }
-
-        onEvent({ type: 'plan', total, have, need: want.length });
-
-        sink = new chunks.Sink(sheet, dir);
-        sendControl({ t: 'want', want });
-        if (!want.length) {
-          // Nichts zu holen - trotzdem sauber abschliessen, damit die
-          // Dateien auf die richtige Laenge kommen.
-          sink.close();
-          sink = null;
-          sendControl({ t: 'done', ok: true, missing: [] });
-          finish({ ok: true, taken: 0, had, recovered, peer, missing: [] });
-        }
+        Promise.resolve()
+          .then(() => approve({
+            files: sheet.files.length,
+            bytes: chunks.totalBytes(sheet),
+            // Die ersten Namen reichen, um zu wissen, worum es geht -
+            // die ganze Liste kann bei einem Ordner riesig sein.
+            names: sheet.files.slice(0, 8).map((f) => f.name)
+          }))
+          .then((ja) => {
+            if (settled) return;
+            if (ja) return angenommen();
+            const err = new Error('Die Gegenstelle hat die Übertragung nicht angenommen');
+            err.code = 'DECLINED';
+            fail(err);
+          })
+          .catch(fail);
         return;
       }
 
@@ -519,7 +554,7 @@ function receiveOn(handshake, { dir, dedup = true, onEvent = () => {} }, ersteNa
   });
 }
 
-function receive(transport, { identity, expect = null, dir, onEvent = () => {}, dedup = true }) {
+function receive(transport, { identity, expect = null, dir, onEvent = () => {}, dedup = true, approve = null }) {
   return new Promise((resolve, reject) => {
     let settled = false;
     const fail = (err) => {
@@ -534,7 +569,7 @@ function receive(transport, { identity, expect = null, dir, onEvent = () => {}, 
         const weiter = (ersteNachricht) => {
           if (settled) return;
           settled = true;
-          receiveOn(h, { dir, dedup, onEvent }, ersteNachricht).then(resolve, reject);
+          receiveOn(h, { dir, dedup, onEvent, approve }, ersteNachricht).then(resolve, reject);
         };
 
         // Vielleicht liegt die erste Nachricht schon in der

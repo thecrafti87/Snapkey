@@ -25,6 +25,7 @@ function pair({ sliceSize = 0, cutAfter = Infinity } = {}) {
   const ends = [makeEnd(0), makeEnd(1)];
   let delivered = 0;
   let dead = false;
+  let closing = false;
 
   function makeEnd(index) {
     return {
@@ -34,7 +35,7 @@ function pair({ sliceSize = 0, cutAfter = Infinity } = {}) {
       bytesIn: 0,
       bytesOut: 0,
       send(bytes) {
-        if (dead) return;
+        if (dead || closing) return;
         const other = ends[1 - index];
         this.bytesOut += bytes.length;
 
@@ -66,7 +67,24 @@ function pair({ sliceSize = 0, cutAfter = Infinity } = {}) {
       },
       onData(cb) { this.onDataCb = cb; },
       onClose(cb) { this.onCloseCb = cb; },
-      close() { cut(); }
+
+      /**
+       * Auflegen wie draussen: was schon im Ausgang liegt, wird noch
+       * zugestellt, DANN reisst die Leitung. Echtes TCP macht es genauso
+       * - tcp.js ruft socket.end(), nicht destroy(), eigens damit die
+       * Schlussnachricht noch rausgeht. Ein sofortiger Abriss hier
+       * prueft einen Fall, den es draussen nicht gibt - und verschluckt
+       * ausgerechnet die Begruendung, die eine Seite der anderen zum
+       * Abschied schickt. Der harte Schnitt mitten in der Uebertragung
+       * bleibt cut() vorbehalten (cutAfter).
+       */
+      close() {
+        if (dead || closing) return;
+        closing = true;
+        // Ein setImmediate NACH den schon eingereihten Zustellungen -
+        // die laufen damit noch, Neues nimmt send() nicht mehr an.
+        setImmediate(cut);
+      }
     };
   }
 

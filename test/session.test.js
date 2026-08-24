@@ -63,7 +63,7 @@ const ERWARTET = [
 
 /** Ein Durchlauf. Gibt zurueck, was beide Seiten am Ende sagen. */
 async function lauf(root, ziel, {
-  sender, empfaenger, gekoppelt = true, cutAfter = Infinity, sliceSize = 0, dedup = true
+  sender, empfaenger, gekoppelt = true, cutAfter = Infinity, sliceSize = 0, dedup = true, approve = null
 } = {}) {
   const leitung = memory.pair({ cutAfter, sliceSize });
   const files = chunks.scan([root]);
@@ -77,7 +77,8 @@ async function lauf(root, ziel, {
     identity: empfaenger,
     expect: gekoppelt ? sender.pub : null,
     dir: ziel,
-    dedup
+    dedup,
+    approve
   });
 
   const [s, e] = await Promise.allSettled([senden, empfangen]);
@@ -341,4 +342,93 @@ test('Handschlagende und erste Nutzdaten im selben Paket - die Uebertragung laeu
   assert.equal(e.value.ok, true);
   assert.deepEqual(e.value.missing, []);
   assert.ok(heil(ziel, root), 'Inhalte stimmen nicht überein');
+});
+
+/* ----------------------------- Einwilligung ----------------------------- */
+
+test('mit Einwilligung: ein Ja laesst alles durchlaufen wie ohne Frage', async (t) => {
+  const dir = tempdir(t);
+  const root = quelle(dir);
+  const ziel = path.join(dir, 'ziel');
+
+  let gefragt = null;
+  const { s, e } = await lauf(root, ziel, {
+    sender: identity.create(),
+    empfaenger: identity.create(),
+    // Absichtlich verspaetet: der Mensch klickt nicht in derselben
+    // Mikrosekunde. Die Verbindung muss die Bedenkzeit tragen.
+    approve: (angebot) => new Promise((res) => {
+      gefragt = angebot;
+      setTimeout(() => res(true), 150);
+    })
+  });
+
+  assert.equal(s.status, 'fulfilled', s.reason && s.reason.message);
+  assert.equal(e.status, 'fulfilled', e.reason && e.reason.message);
+  assert.equal(e.value.ok, true);
+  assert.ok(heil(ziel, root), 'Inhalte stimmen nicht überein');
+
+  await t.test('die Frage traegt Anzahl, Groesse und die ersten Namen', () => {
+    assert.ok(gefragt, 'es wurde gar nicht gefragt');
+    assert.equal(gefragt.files, ERWARTET.length);
+    assert.ok(gefragt.bytes > 0);
+    assert.ok(Array.isArray(gefragt.names) && gefragt.names.length > 0);
+    assert.ok(gefragt.names.length <= 8, 'mehr als die ersten Namen mitgeschickt');
+  });
+});
+
+test('mit Einwilligung: ein Nein laesst kein Byte auf die Platte, und der Sender erfaehrt es', async (t) => {
+  const dir = tempdir(t);
+  const root = quelle(dir);
+  const ziel = path.join(dir, 'ziel');
+
+  const { s, e } = await lauf(root, ziel, {
+    sender: identity.create(),
+    empfaenger: identity.create(),
+    approve: () => false
+  });
+
+  // Beide Seiten enden mit einem Fehler - und beide wissen, warum.
+  assert.equal(e.status, 'rejected');
+  assert.equal(e.reason.code, 'DECLINED');
+
+  assert.equal(s.status, 'rejected');
+  assert.match(s.reason.message, /nicht angenommen/);
+
+  // Das eigentliche Versprechen: bis zur Antwort ist nichts
+  // geschrieben. Kein Zielordner, keine halben Dateien, kein Rest.
+  assert.equal(fs.existsSync(ziel), false, 'im Zielordner liegt etwas, obwohl abgelehnt wurde');
+});
+
+test('ohne Einwilligungs-Haken wird nicht gefragt und sofort angenommen', async (t) => {
+  // Das ist das Verhalten der Kommandozeile und aller bestehenden
+  // Aufrufer - festgehalten, damit die Frage nie versehentlich zur
+  // Pflicht wird.
+  const dir = tempdir(t);
+  const root = quelle(dir);
+  const ziel = path.join(dir, 'ziel');
+
+  const { e } = await lauf(root, ziel, {
+    sender: identity.create(),
+    empfaenger: identity.create()
+  });
+
+  assert.equal(e.status, 'fulfilled');
+  assert.equal(e.value.ok, true);
+});
+
+test('wirft die Einwilligung selbst, endet es wie ein Nein - nicht wie ein Absturz', async (t) => {
+  const dir = tempdir(t);
+  const root = quelle(dir);
+  const ziel = path.join(dir, 'ziel');
+
+  const { s, e } = await lauf(root, ziel, {
+    sender: identity.create(),
+    empfaenger: identity.create(),
+    approve: () => { throw new Error('Fenster weg'); }
+  });
+
+  assert.equal(e.status, 'rejected');
+  assert.equal(s.status, 'rejected');
+  assert.equal(fs.existsSync(ziel), false);
 });

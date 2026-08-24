@@ -80,6 +80,11 @@ async function open({
   // etwas anderes als `announce: false` - dort gibt es gar keinen
   // Rundruf, hier nur keinen selbsttaetigen.
   autoScan = true,
+  // Einwilligung vor dem Empfang: bekommt {from, address, name, files,
+  // bytes, names} und antwortet (auch verspaetet) mit wahr oder falsch.
+  // Ohne Haken wird wie bisher sofort angenommen - die Kommandozeile
+  // und alle bestehenden Aufrufer bleiben unveraendert.
+  onApprove = null,
   meet = null,
   portmap: mitPortfreigabe = false,
   // Blockwiedererkennung: was schon irgendwo im Zielordner liegt, wird
@@ -208,6 +213,18 @@ async function open({
         const res = await session.receiveOn(handshake, {
           dir: outDir,
           dedup,
+          // Die Anschrift kommt dazu, damit die Frage einen Absender
+          // hat - der Name, falls die Gegenstelle als Geraet bekannt
+          // ist. Wer sie ablehnt, laesst keinen Rest zurueck: bis zur
+          // Antwort ist nichts geschrieben (siehe session.receiveOn).
+          approve: onApprove
+            ? (angebot) => onApprove({
+                ...angebot,
+                from: von,
+                address,
+                name: (box.peers.get(address) || {}).name || null
+              })
+            : null,
           onEvent: (e) => onEvent({ ...e, from: von })
         }, erste);
         onEvent({ type: 'received', from: von, result: res, outDir });

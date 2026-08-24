@@ -209,6 +209,62 @@ function defaultOutDir() {
   }
 }
 
+/* ------------------------------ Einwilligung ------------------------------ */
+
+// Wie lange auf eine Antwort gewartet wird, bevor abgelehnt wird. Der
+// Sender haengt in dieser Zeit an einer stehenden Verbindung - das
+// traegt sie, aber nicht endlos: wer nicht am Rechner sitzt, soll den
+// Sender nicht eine Stunde warten lassen. Zwei Minuten sind genug, um
+// vom Nebenraum zurueckzukommen.
+const FRAGE_FRIST_MS = 120000;
+
+const offeneFragen = new Map();
+let frageNr = 0;
+
+/**
+ * Fragt den Menschen, ob eine angebotene Uebertragung angenommen wird.
+ *
+ * Abgeschaltet (confirmReceive aus) wird sofort angenommen - das ist
+ * das alte Verhalten. Sonst geht die Frage als Karte ins Fenster, das
+ * dafuer nach vorn kommt: eine Einwilligung, die niemand sieht, ist
+ * keine. Keine Antwort binnen der Frist heisst nein - im Zweifel wird
+ * nichts angenommen, nicht alles.
+ */
+function uebertragungErfragen(angebot) {
+  if (settings.load().confirmReceive === false) return true;
+
+  const id = `frage-${++frageNr}`;
+  showWindow('receive');
+
+  // Wurde das Fenster fuer die Frage gerade erst erzeugt (macOS,
+  // Fenster war zu), ist die Seite noch nicht geladen - eine sofort
+  // geschickte Frage kaeme nie an, und die Frist liefe ins Leere.
+  const frageSchicken = () => win.webContents.send('receive:ask', { id, ...angebot });
+  if (win.webContents.isLoading()) win.webContents.once('did-finish-load', frageSchicken);
+  else frageSchicken();
+
+  return new Promise((resolve) => {
+    const frist = setTimeout(() => {
+      offeneFragen.delete(id);
+      resolve(false);
+    }, FRAGE_FRIST_MS);
+
+    offeneFragen.set(id, (ok) => {
+      clearTimeout(frist);
+      offeneFragen.delete(id);
+      resolve(Boolean(ok));
+    });
+  });
+}
+
+ipcMain.handle('receive:answer', (_e, { id, ok } = {}) => {
+  const antworten = offeneFragen.get(id);
+  // Nach Ablauf der Frist ist die Frage weg - ein spaeter Klick tut
+  // dann nichts mehr, statt eine fremde Frage zu beantworten.
+  if (antworten) antworten(ok);
+  return true;
+});
+
 /** Aus den gespeicherten Einstellungen die Optionen fuer node.open() bauen. */
 function buildNodeOptions(values) {
   const opts = {
@@ -219,6 +275,7 @@ function buildNodeOptions(values) {
     announce: true,
     autoScan: values.autoScan !== false,
     portmap: Boolean(values.portmap),
+    onApprove: uebertragungErfragen,
     onEvent: handleNodeEvent
   };
   // Leere Zeichenketten NICHT weiterreichen - sonst wird der eigene

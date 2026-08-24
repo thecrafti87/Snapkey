@@ -472,9 +472,50 @@ function jobEl(job) {
 
   const top = el('div', 'job__top');
   top.append(el('span', 'job__name', job.title || job.id));
-  const stateKey = job.state === 'running' ? 'job.stateRunning' : (job.state === 'done' ? 'job.stateDone' : 'job.stateFailed');
+  const stateKey = job.state === 'running' ? 'job.stateRunning'
+    : job.state === 'asking' ? 'job.stateAsking'
+      : (job.state === 'done' ? 'job.stateDone' : 'job.stateFailed');
   top.append(el('span', 'job__state', T(stateKey)));
   card.append(top);
+
+  // Die Einwilligungs-Frage: was kommt, von wem, wie gross - und die
+  // beiden Antworten. Kein Balken, es laueft ja noch nichts.
+  if (job.state === 'asking' && job.frage) {
+    const f = job.frage;
+
+    const was = el('div', 'job__read');
+    was.append(el('span', null, T('job.offer', f.files, bytes(f.bytes))));
+    card.append(was);
+
+    if (f.names && f.names.length) {
+      const namen = el('div', 'job__read');
+      namen.append(el('span', null, f.names.join(' · ') + (f.files > f.names.length ? ' …' : '')));
+      card.append(namen);
+    }
+
+    const acts = el('div', 'job__acts');
+    const ja = el('button', 'btn btn--go btn--sm', T('job.accept'));
+    ja.type = 'button';
+    ja.addEventListener('click', () => {
+      api.receiveAnswer(f.id, true);
+      // Nicht auf das naechste Kernereignis warten: der Klick soll
+      // sofort sichtbar Wirkung haben, sonst drueckt man zweimal.
+      job.state = 'running';
+      job.frage = null;
+      renderJobs();
+    });
+    const nein = el('button', 'btn btn--ghost btn--sm', T('job.decline'));
+    nein.type = 'button';
+    nein.addEventListener('click', () => {
+      api.receiveAnswer(f.id, false);
+      // Der Kern meldet gleich 'refused' - die Karte bekommt ihren
+      // Endzustand von dort, mitsamt der Begruendung.
+    });
+    acts.append(ja, nein);
+    card.append(acts);
+
+    return card;
+  }
 
   if (job.kind !== 'refused') {
     const pct = jobPercent(job);
@@ -668,6 +709,7 @@ function renderSettingsForm() {
 
   $('#recvOutDir').value = state.outDir || '';
   $('#recvTrustNew').checked = Boolean(s.trustNew);
+  $('#recvConfirm').checked = s.confirmReceive !== false;
 
   $('#appVersion').textContent = T('set.version', state.version || '0.1.0');
   $('#keysNote').textContent = T('set.keysAt', state.keysDir || '~/.snapkey');
@@ -865,6 +907,26 @@ async function onUpdateApply() {
     $('#updateApplyBtn').disabled = false;
     renderUpdate();
   }
+}
+
+/**
+ * Eine eingehende Uebertragung wartet auf Einwilligung.
+ *
+ * Die Frage wird zur Karte im Empfangen-Bereich - kein eigener Dialog,
+ * der sich vor alles stellt: die Karte zeigt Absender, Dateien und
+ * Groesse, und die beiden Knoepfe sind die Antwort. Der Sender wartet
+ * derweil an der stehenden Verbindung; nach zwei Minuten ohne Antwort
+ * lehnt der Hauptprozess von selbst ab (siehe main.js).
+ */
+function handleReceiveAsk(f) {
+  const job = ensureJob(f.from, 'receive');
+  job.state = 'asking';
+  job.frage = f;
+  job.totalBytes = f.bytes;
+  if (f.name) job.title = f.name;
+  else if (f.address) job.title = f.address;
+  renderJobs();
+  merkeEingang('receive');
 }
 
 function handleUpdateProgress(e) {
@@ -1115,7 +1177,9 @@ function handleNodeEvent(e) {
 
     case 'refused': {
       const bestehend = state.jobs.get(e.from);
-      if (bestehend && bestehend.kind === 'receive' && bestehend.state === 'running') {
+      // 'asking' gehoert dazu: eine abgelehnte oder verfallene Frage
+      // endet auch hier, und die Karte soll die Begruendung tragen.
+      if (bestehend && bestehend.kind === 'receive' && (bestehend.state === 'running' || bestehend.state === 'asking')) {
         bestehend.kind = 'refused';
         bestehend.state = 'failed';
         bestehend.error = e.message;
@@ -1288,6 +1352,7 @@ function wireReceive() {
     if (picked) await setSetting({ outDir: picked });
   });
   $('#recvTrustNew').addEventListener('change', () => setSetting({ trustNew: $('#recvTrustNew').checked }));
+  $('#recvConfirm').addEventListener('change', () => setSetting({ confirmReceive: $('#recvConfirm').checked }));
 }
 
 function wireDevices() {
@@ -1404,6 +1469,7 @@ async function init() {
   api.onHistoryChanged(refreshHistory);
   api.onUpdateProgress(handleUpdateProgress);
   api.onUpdateFound(handleUpdateFound);
+  api.onReceiveAsk(handleReceiveAsk);
   api.onOpenView((view) => activateView(view));
   // Dieselbe Verarbeitung wie beim Ziehen und Ablegen (addPaths) - der
   // Hauptprozess hat die Ansicht schon auf "Senden" gestellt, bevor
