@@ -149,3 +149,36 @@ test('canReplace behauptet im Entwicklungslauf nie, es ginge', () => {
   if (process.platform === 'darwin') assert.equal(res.reason, 'dev');
   else assert.equal(res.reason, 'platform');
 });
+
+/* --------------------- Die Quelle im gebauten Paket --------------------- */
+
+// electron-builder streift beim Packen das build-Feld aus der
+// package.json - build.publish existiert im installierten Paket also
+// NICHT. Aufgefallen erst am installierten Paket: das Selbstupdate
+// meldete "kein Veroeffentlichungsort", obwohl im Quelltext einer
+// stand, und zwar auf jedem System. Der Rueckfallweg liest deshalb das
+// Standardfeld repository, das das Packen uebersteht.
+
+const { repoAusFeld } = require('../app/selfupdate');
+
+test('repoAusFeld liest jede uebliche Schreibweise des repository-Feldes', () => {
+  assert.equal(repoAusFeld('github:thecrafti87/Snapkey'), 'thecrafti87/Snapkey');
+  assert.equal(repoAusFeld('https://github.com/thecrafti87/Snapkey.git'), 'thecrafti87/Snapkey');
+  assert.equal(repoAusFeld('git+https://github.com/thecrafti87/Snapkey.git'), 'thecrafti87/Snapkey');
+  assert.equal(repoAusFeld({ type: 'git', url: 'https://github.com/thecrafti87/Snapkey.git' }), 'thecrafti87/Snapkey');
+});
+
+test('was kein GitHub-Verweis ist, ergibt leer statt Unsinn', () => {
+  assert.equal(repoAusFeld(undefined), '');
+  assert.equal(repoAusFeld(''), '');
+  assert.equal(repoAusFeld('https://gitlab.com/wer/auch-immer'), '');
+  assert.equal(repoAusFeld({ url: null }), '');
+});
+
+test('package.json traegt das repository-Feld - ohne das ist das Selbstupdate im Paket blind', () => {
+  // build.publish gibt es nur im Quelltext; im gebauten Paket bleibt
+  // allein dieses Feld uebrig. Fehlt es, faellt der Fehler erst am
+  // installierten Programm auf - deshalb wird es hier festgenagelt.
+  const pkg = require('../package.json');
+  assert.equal(repoAusFeld(pkg.repository), 'thecrafti87/Snapkey');
+});

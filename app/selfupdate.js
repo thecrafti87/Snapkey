@@ -113,10 +113,26 @@ function isConfiguredRepo(repo) {
  */
 function configuredRepo() {
   const pkg = require('../package.json');
+
   const publish = pkg.build && pkg.build.publish;
   const eintrag = Array.isArray(publish) ? publish[0] : publish;
-  if (!eintrag || !eintrag.owner || !eintrag.repo) return '';
-  return `${eintrag.owner}/${eintrag.repo}`;
+  if (eintrag && eintrag.owner && eintrag.repo) return `${eintrag.owner}/${eintrag.repo}`;
+
+  // Im gebauten Paket gibt es build.publish NICHT mehr: electron-builder
+  // streift das build-Feld beim Packen aus der package.json. Aufgefallen
+  // erst am installierten Paket - dort meldete das Selbstupdate "kein
+  // Veroeffentlichungsort", obwohl im Quelltext einer stand. Das
+  // Standardfeld repository uebersteht das Packen; daraus liest der
+  // Rueckfallweg dieselbe Angabe. Beide Schreibweisen sind erlaubt:
+  // "github:eigner/name" wie auch die volle URL mit .git am Ende.
+  return repoAusFeld(pkg.repository);
+}
+
+/** Liest "eigner/name" aus einem package.json-repository-Feld - oder ''. */
+function repoAusFeld(repository) {
+  const text = typeof repository === 'string' ? repository : ((repository && repository.url) || '');
+  const m = text.match(/github(?:\.com[:/]|:)([\w.-]+)\/([\w.-]+?)(?:\.git)?$/i);
+  return m ? `${m[1]}/${m[2]}` : '';
 }
 
 /* ------------------------------ Netz ------------------------------ */
@@ -356,6 +372,7 @@ module.exports = {
   pickAsset,
   isConfiguredRepo,
   configuredRepo,
+  repoAusFeld,
   // Brauchen Electron, das Dateisystem oder das Netz.
   canReplace,
   check,
