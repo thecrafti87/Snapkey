@@ -18,6 +18,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const fs = require('fs');
+const path = require('path');
+
 const winupdate = require('../app/winupdate');
 const selfupdate = require('../app/selfupdate');
 
@@ -88,4 +91,37 @@ test('die Adresse zur Veroeffentlichung traegt das v vor der Fassung', () => {
     winupdate.releaseUrl('thecrafti87/Snapkey', '0.1.4'),
     'https://github.com/thecrafti87/Snapkey/releases/tag/v0.1.4'
   );
+});
+
+/* ------------------------------ Der Neustart ------------------------------ */
+
+/**
+ * Warum der Neustart nicht dem Installer ueberlassen wird:
+ *
+ * NSIS bietet dafuer "--force-run" an, und electron-updater reicht es
+ * durch. Am installierten Paket nachgemessen hat es nicht getragen -
+ * weder still ("/S") noch sichtbar: die neue Fassung lag jedesmal auf
+ * der Platte und in der Registrierung, es lief nur nichts mehr.
+ *
+ * Der eigene Helfer wiederum darf NICHT direkt gespawnt werden: Electron
+ * haengt seine Kindprozesse an ein Job-Objekt, und beim Beenden der App
+ * stirbt alles darin mit. An einem Mini-Programm nachgemessen -
+ * powershell direkt gespawnt (detached, unref) hinterliess keine Spur,
+ * ueber "cmd /c start" lief derselbe Helfer weiter.
+ *
+ * Beides sind Erfahrungen, die man am Quelltext nicht sieht. Diese
+ * Pruefung haelt sie fest, damit sie nicht beim naechsten Aufraeumen
+ * "vereinfacht" werden.
+ */
+test('der Neustart nach dem Einspielen wird selbst besorgt, und zwar abgekoppelt', () => {
+  const quelle = fs.readFileSync(path.join(__dirname, '..', 'app', 'winupdate.js'), 'utf8');
+
+  assert.match(quelle, /quitAndInstall\(false,\s*false\)/,
+    'quitAndInstall soll weder still einspielen noch --force-run verlangen');
+
+  assert.match(quelle, /spawn\(\s*'cmd\.exe'/,
+    'der Helfer muss ueber "cmd /c start" laufen - direkt gespawnt stirbt er mit der App');
+
+  assert.match(quelle, /process\.pid/,
+    'der Helfer muss auf das Ende DIESES Prozesses warten, sonst haelt er sich fuer ueberfluessig');
 });

@@ -33,6 +33,11 @@
    geladenen Paket, nicht vor einer falschen Quelle.
    ================================================================= */
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawn } = require('child_process');
+
 const { app } = require('electron');
 
 const { isNewer, isConfiguredRepo } = require('./selfupdate');
@@ -155,23 +160,100 @@ async function prepare(repo, onProgress = () => {}) {
  * Programm sich beendet. Sonst sieht der Renderer nie, dass es geklappt
  * hat - genauso geloest wie im Mac-Weg.
  *
- * quitAndInstall(true, true): still einspielen und danach wieder
- * starten. "Still" geht nur, weil der Installer auf oneClick steht -
- * sonst stuende der Benutzer vor einem Installationsdialog, den er nie
- * angefordert hat.
+ * Der Neustart danach wird SELBST besorgt, nicht dem Installer
+ * ueberlassen. Beide eingebauten Wege wurden am installierten Paket
+ * nachgemessen und starteten die App nicht wieder - weder still ("/S"
+ * samt --force-run) noch sichtbar: 0.1.5 lag jedesmal auf der Platte
+ * und in der Registrierung, es lief nur nichts mehr. Ein Knopf, der
+ * "Neu starten und uebernehmen" heisst, darf das nicht.
+ *
+ * Deshalb dasselbe Muster wie im Mac-Weg (siehe install() in
+ * selfupdate.js): ein abgekoppelter Helfer, der wartet, bis der
+ * Installer durch ist, und dann startet. Er prueft vorher, ob nicht
+ * doch schon jemand gestartet hat - liefe der eingebaute Weg auf einem
+ * anderen Windows doch, gaebe es sonst zwei Fenster.
+ *
+ * Eingespielt wird sichtbar, nicht still: der Mensch hat den Knopf
+ * gerade selbst gedrueckt und darf sehen, dass etwas geschieht. Weil
+ * der Installer auf oneClick steht, ist es ein Fortschrittsbalken und
+ * kein Dialog, der etwas fragt.
  */
 function install() {
   const platz = canReplace();
   if (!platz.ok) return { ok: false, reason: platz.reason };
 
+  neustartVormerken();
+
   setImmediate(() => {
     try {
-      updater().quitAndInstall(true, true);
+      // Kein --force-run: den Neustart besorgt neustartVormerken().
+      updater().quitAndInstall(false, false);
     } catch (err) {
       console.error('Einspielen misslungen:', err.message);
     }
   });
   return { ok: true };
+}
+
+/**
+ * Meldet einen abgekoppelten Helfer an, der SNAPKEY nach dem Einspielen
+ * wieder startet.
+ *
+ * Er wartet, bis kein Installer mehr laueft (der heisst
+ * "SNAPKEY-<fassung>-x64", die App schlicht "SNAPKEY"), und startet
+ * dann - aber nur, wenn nicht schon eine Instanz da ist. Damit ist er
+ * gutmuetig: springt der eingebaute Weg auf einem anderen Windows doch
+ * an, tut der Helfer nichts, statt ein zweites Fenster aufzumachen.
+ *
+ * Muss VOR quitAndInstall() gerufen werden - danach gibt es diesen
+ * Prozess nicht mehr, der ihn anmelden koennte.
+ */
+function neustartVormerken() {
+  // In einfachen Anfuehrungszeichen von PowerShell wird ' durch ''
+  // geschuetzt - ein Benutzername mit Apostroph soll den Befehl nicht
+  // auseinanderreissen.
+  const hoch = (s) => s.replace(/'/g, "''");
+
+  try {
+    const werkstatt = fs.mkdtempSync(path.join(os.tmpdir(), 'snapkey-neustart-'));
+    const skript = path.join(werkstatt, 'neustart.ps1');
+
+    fs.writeFileSync(skript, [
+      '$ende = (Get-Date).AddSeconds(180)',
+      // ZUERST auf das Ende DIESES Prozesses warten - genau wie das
+      // Tauschskript im Mac-Weg (while kill -0 "$PID"). Ohne diesen
+      // Schritt sieht der Helfer die noch laufende alte App, haelt sich
+      // fuer ueberfluessig und tut nichts. Nachgemessen: genau daran
+      // scheiterte der erste Anlauf.
+      `$alt = ${process.pid}`,
+      'while ((Get-Date) -lt $ende -and (Get-Process -Id $alt -ErrorAction SilentlyContinue)) { Start-Sleep -Milliseconds 300 }',
+      // Dann auf den Installer warten (heisst "SNAPKEY-<fassung>-x64").
+      "while ((Get-Date) -lt $ende -and (Get-Process -Name 'SNAPKEY-*' -ErrorAction SilentlyContinue)) { Start-Sleep -Milliseconds 500 }",
+      // Kurz nachfassen: zwischen dem Ende des Installers und der
+      // fertigen Datei liegt noch ein Wimpernschlag.
+      'Start-Sleep -Seconds 2',
+      `if (-not (Get-Process -Name 'SNAPKEY' -ErrorAction SilentlyContinue)) { Start-Process -FilePath '${hoch(process.execPath)}' }`,
+      // Hinter sich aufraeumen.
+      `Remove-Item -LiteralPath '${hoch(werkstatt)}' -Recurse -Force -ErrorAction SilentlyContinue`
+    ].join('\n'), 'utf8');
+
+    // ueber "cmd /c start" statt direkt: Electron haengt seine
+    // Kindprozesse an ein Job-Objekt, und beim Beenden der App stirbt
+    // alles darin mit - detached allein genuegt auf Windows NICHT.
+    // Nachgemessen an einem Mini-Programm: direkt gespawnt hinterliess
+    // der Helfer keine Spur, ueber "start" lief er weiter. "start"
+    // haengt den neuen Prozess an die Konsole statt an uns.
+    const helfer = spawn(
+      'cmd.exe',
+      ['/c', 'start', '""', '/min', 'powershell.exe', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-File', skript],
+      { detached: true, stdio: 'ignore', windowsHide: true }
+    );
+    helfer.unref();
+  } catch (err) {
+    // Ohne Helfer wird trotzdem eingespielt - dann fehlt nur der
+    // Neustart, und das ist kein Grund, das Update abzublasen.
+    console.error('Neustart konnte nicht vorgemerkt werden:', err.message);
+  }
 }
 
 module.exports = {

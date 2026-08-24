@@ -717,10 +717,30 @@ ipcMain.handle('update:fetch', async () => {
   return { ok: res.ok, version: res.version, reason: res.reason, message: res.message };
 });
 
-ipcMain.handle('update:apply', () => {
+ipcMain.handle('update:apply', async () => {
   if (!preparedUpdate) return { ok: false, message: 'Nichts zum Einspielen vorbereitet - erst laden.' };
+
+  // Vor dem Einspielen den Knoten selbst schliessen und das Beenden
+  // freigeben. Ohne das faengt before-quit das app.quit() des Updaters
+  // ab (e.preventDefault, erst den Knoten schliessen) - und
+  // electron-updater wertet das als "nicht jetzt": es installiert dann
+  // erst beim endgueltigen Beenden, aber OHNE den zugesagten Neustart.
+  // Nachgemessen am installierten Paket: eingespielt wurde, neu
+  // gestartet nicht. So herum ist das Ende sauber UND der Neustart
+  // kommt.
+  quitting = true;
+  await closeNode();
+
   const res = updateWeg().install(preparedUpdate);
   preparedUpdate = null;
+
+  if (!res.ok) {
+    // Das Einspielen kam nicht zustande - dann ist das hier wieder eine
+    // laufende App, kein halb beendetes Programm ohne Knoten.
+    quitting = false;
+    await openNode();
+    refreshTray();
+  }
   return res;
 });
 
