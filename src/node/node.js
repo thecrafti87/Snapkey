@@ -425,8 +425,12 @@ async function open({
   function schluesselPruefen(identityMod, address, ziel, e) {
     const echt = identityMod.addressOf(e.peer.pub);
     if (address && echt !== address) {
+      // Bewusst ohne Schuldzuweisung an die Geraeteschau: die Anschrift
+      // kann genauso von Hand eingegeben worden sein (siehe
+      // app/ziel.js). Gesagt wird, was feststeht - wer erwartet wurde
+      // und wer geantwortet hat.
       const err = new Error(
-        `Angesteuert war ${address}, geantwortet hat ${echt} - die Geräteschau war irreführend`
+        `Angesteuert war ${address}, geantwortet hat ${echt} - dort ist ein anderes Gerät`
       );
       err.code = 'PEER_CHANGED';
       throw err;

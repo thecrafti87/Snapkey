@@ -19,6 +19,7 @@ const state = {
   running: false,
   error: null,
   me: null,             // {address, uri, fingerprint}
+  direkt: [],            // fertige "Anschrift@Adresse:Port"-Zeilen, je Netzwerkkarte
   outDir: '',
   files: [],             // [{path, name, size, dir}]
   peers: [],              // [{address, name, host, port, gekoppelt}]
@@ -148,6 +149,34 @@ function renderMyAddress() {
     box.append(el('span', 'beacon__word', w));
   });
   $('#myFingerprint').textContent = T('recv.fingerprint', state.me.fingerprint);
+  renderDirekt();
+}
+
+/**
+ * Die Zeilen, mit denen eine Gegenstelle einen OHNE Geraeteschau
+ * erreicht - je eine pro Netzwerkkarte, zum Anklicken und Kopieren.
+ *
+ * Gebraucht in Netzen, in denen der Rundruf nur in eine Richtung
+ * durchkommt. Deshalb steht der Abschnitt eingeklappt da: er soll
+ * gefunden werden, wenn man ihn sucht, und sonst nicht im Weg sein.
+ */
+function renderDirekt() {
+  const box = $('#direktListe');
+  box.textContent = '';
+
+  const zeilen = state.direkt || [];
+  $('#direktBox').hidden = zeilen.length === 0;
+
+  zeilen.forEach((zeile) => {
+    const knopf = el('button', 'direkt__zeile', zeile);
+    knopf.type = 'button';
+    knopf.title = T('recv.directCopy');
+    knopf.addEventListener('click', async () => {
+      await api.copy(zeile);
+      toast(T('toast.copied'), 'good');
+    });
+    box.append(knopf);
+  });
 }
 
 /* ------------------------------- Geraete ------------------------------- */
@@ -1113,6 +1142,7 @@ async function refreshState() {
   state.running = s.running;
   state.me = s.me;
   state.outDir = s.outDir || '';
+  state.direkt = s.direkt || [];
   state.error = s.error;
   renderNodeStatus();
   renderMyAddress();

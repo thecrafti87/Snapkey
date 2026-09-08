@@ -1963,3 +1963,72 @@ select.field {
   background: var(--lime);
   box-shadow: 0 0 0 3px var(--ink-900);
 }
+
+/* ---------------------------------------------------------------- *
+   Unmittelbare Adresse
+
+   Der Ausweg fuer Netze, in denen der Rundruf nur in eine Richtung
+   durchkommt - nachgemessen an einem Router, der Multicast von
+   WLAN-Geraeten nicht ins Kabelnetz weiterreicht. Eingeklappt, weil
+   die Geraeteschau der Normalfall bleibt und diese Zeile die Ausnahme.
+   ---------------------------------------------------------------- */
+
+.falte {
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--ink-850);
+  padding: 0 16px;
+}
+
+.falte > summary {
+  padding: 13px 0;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--haze);
+  list-style: none;
+}
+.falte > summary::-webkit-details-marker { display: none; }
+
+/* Ein Winkel, der sich beim Aufklappen dreht - dieselbe Sprache wie
+   die uebrigen Zustandswechsel in der Oberflaeche. */
+.falte > summary::before {
+  content: '›';
+  display: inline-block;
+  margin-right: 9px;
+  color: var(--lime-d);
+  transition: transform .18s var(--ease);
+}
+.falte[open] > summary::before { transform: rotate(90deg); }
+.falte > summary:hover { color: var(--bone); }
+
+.falte .hint { margin: 0 0 12px; }
+
+.direkt {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-bottom: 15px;
+}
+
+.direkt__zeile {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--ink-900);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: -.03em;
+  color: var(--lime);
+  word-break: break-all;
+  cursor: pointer;
+  transition: border-color .15s var(--ease);
+}
+.direkt__zeile:hover { border-color: var(--lime-d); }

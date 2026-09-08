@@ -26,6 +26,7 @@ const meetServerMod = require('../src/meet/server');
 const storeMod = require('../src/node/store');
 const selfupdate = require('./selfupdate');
 const winupdate = require('./winupdate');
+const zielMod = require('./ziel');
 const quickaction = require('./quickaction');
 const { t } = require('./renderer/i18n');
 
@@ -359,6 +360,13 @@ function findZiel(ziel) {
   const gefunden = node.find(alsAnschrift || text);
   if (gefunden) return gefunden;
 
+  // Von Hand angegebener Ort - fuer Netze, in denen der Rundruf nicht
+  // durchkommt (siehe app/ziel.js). Steht die Gegenstelle in der
+  // Geraeteschau, gewinnt die: dort sind Adresse und Port aktuell,
+  // waehrend eine abgetippte Zeile von gestern sein kann.
+  const direkt = zielMod.parseDirekt(text);
+  if (direkt) return direkt;
+
   const values = settings.load();
   if (values.meetHost && alsAnschrift) {
     return {
@@ -367,8 +375,11 @@ function findZiel(ziel) {
     };
   }
 
+  // Der Hinweis auf die unmittelbare Adresse gehoert hierher: wer diese
+  // Meldung sieht, sucht gerade einen Ausweg, und in manchen Netzen ist
+  // genau das der einzige.
   throw new Error(alsAnschrift
-    ? `"${text}" wurde im eigenen Netz nicht gefunden - kein Treffpunkt eingerichtet.`
+    ? `"${text}" wurde im eigenen Netz nicht gefunden - kein Treffpunkt eingerichtet. Die Gegenstelle lässt sich auch unmittelbar angeben (Anschrift@Adresse:Port).`
     : `"${text}" wurde im eigenen Netz nicht gefunden.`);
 }
 
@@ -502,9 +513,33 @@ function handleNodeEvent(e) {
 
 /* ---------------------------------- IPC ---------------------------------- */
 
+/**
+ * Die eigenen Adressen im Netz - fuer die Zeile, die man weitergibt,
+ * wenn die Geraeteschau nicht durchkommt.
+ *
+ * 169.254 bleibt draussen: das sind Karten ohne DHCP, ueber die
+ * erfahrungsgemaess niemand ankommt. Alles andere wird gezeigt statt
+ * geraten - bei VPN oder Hyper-V gibt es mehrere, und welche die
+ * richtige ist, weiss der Mensch besser als eine Heuristik.
+ */
+function eigeneAdressen() {
+  const raus = [];
+  for (const adressen of Object.values(os.networkInterfaces())) {
+    for (const a of adressen || []) {
+      if ((a.family !== 'IPv4' && a.family !== 4) || a.internal) continue;
+      if (a.address.startsWith('169.254.')) continue;
+      raus.push(a.address);
+    }
+  }
+  return raus;
+}
+
 ipcMain.handle('node:state', () => ({
   me: node ? { address: node.me.address, uri: node.me.uri, fingerprint: node.me.fingerprint } : null,
   port: node ? node.port : null,
+  // Fertige Zeilen zum Weitergeben - Anschrift und Ort in einem, damit
+  // die Gegenstelle im Voraus weiss, wen sie erwartet.
+  direkt: node ? eigeneAdressen().map((ip) => zielMod.direktText(node.me.address, ip, node.port)) : [],
   external: node ? node.external : null,
   running: Boolean(node),
   outDir: node ? node.outDir : null,
