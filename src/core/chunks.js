@@ -354,9 +354,65 @@ class Sink {
   }
 }
 
+/* --------------------------- Was zu viel ist --------------------------- */
+
+/**
+ * Welche Ordner bringt diese Liste mit?
+ *
+ * Nur die obersten - und nur echte Ordner: "daten/unter/d.bin" spannt
+ * "daten" auf, eine einzeln geschickte "urlaub.jpg" spannt gar nichts
+ * auf. Das ist die Grenze, innerhalb derer ein Abgleich ueberhaupt
+ * etwas anfassen darf.
+ */
+function wurzeln(manifest) {
+  const raus = new Set();
+  for (const f of manifest.files) {
+    const i = f.name.indexOf('/');
+    if (i > 0) raus.add(f.name.slice(0, i));
+  }
+  return [...raus];
+}
+
+/**
+ * Was liegt im Zielordner, gehoert aber nicht zu dieser Liste?
+ *
+ * Gebraucht fuer den Abgleich ("das Ziel soll genau so aussehen wie die
+ * Quelle"). Bewusst eng gefasst: gesucht wird AUSSCHLIESSLICH unterhalb
+ * der Ordner, die die Uebertragung selbst mitbringt (siehe wurzeln).
+ * Wer einen Projektordner schickt, kann damit nicht den halben
+ * Zielordner leeren - was daneben liegt, bleibt unangetastet.
+ *
+ * Gibt relative Namen zurueck, mit Schraegstrich wie im Manifest.
+ */
+function ueberzaehlig(manifest, dir) {
+  const gehoertDazu = new Set(manifest.files.map((f) => f.name));
+  const raus = [];
+
+  const walk = (abs, rel) => {
+    let eintraege;
+    try {
+      eintraege = fs.readdirSync(abs, { withFileTypes: true });
+    } catch {
+      return;   // nicht lesbar oder nicht da - dann gibt es nichts wegzuraeumen
+    }
+    for (const e of eintraege.sort((a, b) => a.name.localeCompare(b.name))) {
+      const unten = `${rel}/${e.name}`;
+      // Verweise werden NICHT verfolgt: ein Verweis nach draussen wuerde
+      // den Abgleich sonst aus seinem Ordner hinausfuehren.
+      if (e.isSymbolicLink()) { raus.push(unten); continue; }
+      if (e.isDirectory()) walk(path.join(abs, e.name), unten);
+      else if (e.isFile() && !gehoertDazu.has(unten)) raus.push(unten);
+    }
+  };
+
+  for (const w of wurzeln(manifest)) walk(path.join(dir, w), w);
+  return raus;
+}
+
 module.exports = {
   CHUNK_SIZE, chunkCount, span,
   scan, hashChunks, buildManifest, totalBytes, totalChunks,
   missing, readChunk, Sink,
-  indexBlocks, recover
+  indexBlocks, recover,
+  wurzeln, ueberzaehlig
 };

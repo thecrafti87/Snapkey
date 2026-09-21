@@ -521,6 +521,30 @@ function jobEl(job) {
       card.append(namen);
     }
 
+    // Beim Abgleich wird hier geloescht. Das gehoert in dieselbe Frage
+    // und in Warnfarbe - wer zustimmt, stimmt dem Loeschen mit zu, und
+    // das darf niemanden hinterher ueberraschen.
+    if (f.loescht > 0) {
+      const weg = el('div', 'job__read');
+      const kopf = el('span', null, T('job.willDelete', f.loescht));
+      kopf.dataset.tone = 'bad';
+      weg.append(kopf);
+      card.append(weg);
+
+      if (f.loeschtNamen && f.loeschtNamen.length) {
+        const liste = el('div', 'job__read');
+        liste.append(el('span', null,
+          f.loeschtNamen.join(' · ') + (f.loescht > f.loeschtNamen.length ? ' …' : '')));
+        card.append(liste);
+      }
+    } else if (f.mirror) {
+      // Abgleich verlangt, aber es gibt nichts wegzuraeumen. Auch das
+      // gehoert gesagt - sonst raetselt man, ob er gegriffen hat.
+      const nix = el('div', 'job__read');
+      nix.append(el('span', null, T('job.mirrorNothing')));
+      card.append(nix);
+    }
+
     const acts = el('div', 'job__acts');
     const ja = el('button', 'btn btn--go btn--sm', T('job.accept'));
     ja.type = 'button';
@@ -577,6 +601,10 @@ function jobEl(job) {
       const extra = el('div', 'job__read');
       extra.append(el('span', null, T('job.received', job.taken || 0, job.had || 0)));
       if (job.recovered) extra.append(el('span', null, T('job.recovered', job.recovered)));
+      // Was weggeraeumt wurde, steht im Ergebnis - nicht nur in der
+      // Frage davor. Sonst liesse sich hinterher nicht nachlesen, was
+      // der Abgleich getan hat.
+      if (job.deleted) extra.append(el('span', null, T('job.deleted', job.deleted)));
       card.append(extra);
     }
   }
@@ -1226,6 +1254,7 @@ function handleNodeEvent(e) {
       job.taken = e.result.taken;
       job.had = e.result.had;
       if (e.result.recovered) job.recovered = e.result.recovered;
+      if (e.result.deleted) job.deleted = e.result.deleted;
       job.outDir = e.outDir;
       if (!e.result.ok && e.result.missing && e.result.missing.length) {
         job.error = T('job.missing', e.result.missing.join(', '));
@@ -1318,7 +1347,7 @@ async function sendeLauf(job) {
   renderJobs();
 
   try {
-    const res = await api.send(job.ziel, job.paths, job.id);
+    const res = await api.send(job.ziel, job.paths, job.id, job.mirror);
     if (res.ok) {
       job.state = 'done';
       job.resultSent = res.sent;
@@ -1371,7 +1400,10 @@ async function onSendStart() {
   const id = `send-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const job = {
     id, kind: 'send', state: 'running', title, ts: Date.now(),
-    doneBytes: 0, ziel, paths: state.files.map((f) => f.path)
+    doneBytes: 0, ziel, paths: state.files.map((f) => f.path),
+    // Wandert mit in die Aufgabe: ein Fortsetzen nach einer Pause soll
+    // dasselbe tun wie der erste Anlauf, nicht plötzlich etwas anderes.
+    mirror: $('#sendMirror').checked
   };
   state.jobs.set(id, job);
 

@@ -590,7 +590,7 @@ ipcMain.handle('node:scan', () => {
 // Anzeige nicht auseinanderzuhalten).
 const laufendeSendungen = new Map();
 
-ipcMain.handle('node:send', async (_e, { ziel, paths, id }) => {
+ipcMain.handle('node:send', async (_e, { ziel, paths, id, mirror }) => {
   if (!node) return { ok: false, message: 'Der Knoten ist nicht bereit.' };
 
   let zielAngabe;
@@ -606,6 +606,7 @@ ipcMain.handle('node:send', async (_e, { ziel, paths, id }) => {
   try {
     const res = await node.sendTo(zielAngabe, paths, {
       signal: anhalter.signal,
+      mirror: Boolean(mirror),
       onProgress: (e) => { if (win) win.webContents.send('send:progress', { id, ...e }); }
     });
     recordSendHistory(zielAngabe, paths, res, null);

@@ -64,7 +64,8 @@ const ERWARTET = [
 /** Ein Durchlauf. Gibt zurueck, was beide Seiten am Ende sagen. */
 async function lauf(root, ziel, {
   sender, empfaenger, gekoppelt = true, cutAfter = Infinity, sliceSize = 0, dedup = true, approve = null,
-  signalSenden = null, signalEmpfangen = null, onSendEvent = () => {}, onReceiveEvent = () => {}
+  signalSenden = null, signalEmpfangen = null, onSendEvent = () => {}, onReceiveEvent = () => {},
+  mirror = false
 } = {}) {
   const leitung = memory.pair({ cutAfter, sliceSize });
   const files = chunks.scan([root]);
@@ -74,6 +75,7 @@ async function lauf(root, ziel, {
     expect: gekoppelt ? empfaenger.pub : null,
     files,
     signal: signalSenden,
+    mirror,
     onEvent: onSendEvent
   });
   const empfangen = session.receive(leitung.b, {
@@ -533,4 +535,164 @@ test('ein schon abgebrochenes Signal laesst gar nicht erst senden', async (t) =>
   assert.equal(s.status, 'rejected');
   assert.equal(s.reason.code, 'STOPPED');
   assert.equal(fs.existsSync(ziel), false, 'es wurde trotzdem etwas geschrieben');
+});
+
+/* ------------------------------- Abgleich ------------------------------- */
+
+/**
+ * Der Abgleich loescht Dateien auf dem EMPFANGENDEN Rechner, auf Zuruf
+ * von draussen. Deshalb steht hier mehr auf dem Spiel als bei den
+ * uebrigen Pruefungen: die Grenze, innerhalb derer ueberhaupt angefasst
+ * wird, und die Frage, wer das erlaubt.
+ */
+
+/** Legt neben dem Zielordner Dinge ab, die niemand anfassen darf. */
+function unbeteiligtes(ziel) {
+  fs.mkdirSync(path.join(ziel, 'fremder-ordner'), { recursive: true });
+  fs.writeFileSync(path.join(ziel, 'fremder-ordner', 'wichtig.txt'), 'NICHT ANFASSEN');
+  fs.writeFileSync(path.join(ziel, 'lose-datei.txt'), 'NICHT ANFASSEN');
+}
+
+const unbeteiligtesHeil = (ziel) =>
+  fs.existsSync(path.join(ziel, 'fremder-ordner', 'wichtig.txt'))
+  && fs.existsSync(path.join(ziel, 'lose-datei.txt'));
+
+test('mit Abgleich verschwindet drueben, was die Quelle nicht mehr hat', async (t) => {
+  const dir = tempdir(t);
+  const root = quelle(dir);
+  const ziel = path.join(dir, 'ziel');
+
+  const sender = identity.create();
+  const empfaenger = identity.create();
+
+  // Erst einmal normal uebertragen, dann drueben etwas hinzufuegen -
+  // so sieht ein Ordner aus, der auseinandergelaufen ist.
+  await lauf(root, ziel, { sender, empfaenger });
+  fs.writeFileSync(path.join(ziel, 'daten', 'veraltet.txt'), 'von gestern');
+  fs.mkdirSync(path.join(ziel, 'daten', 'alter-ordner'), { recursive: true });
+  fs.writeFileSync(path.join(ziel, 'daten', 'alter-ordner', 'auch-weg.bin'), 'weg');
+  unbeteiligtes(ziel);
+
+  let gefragt = null;
+  const { s, e } = await lauf(root, ziel, {
+    sender, empfaenger, mirror: true,
+    approve: (angebot) => { gefragt = angebot; return true; }
+  });
+
+  assert.equal(s.status, 'fulfilled', s.reason && s.reason.message);
+  assert.equal(e.value.ok, true);
+
+  await t.test('die Frage nennt, was wegfaellt - bevor jemand zustimmt', () => {
+    assert.ok(gefragt, 'es wurde nicht gefragt');
+    assert.equal(gefragt.mirror, true);
+    assert.equal(gefragt.loescht, 2);
+    assert.deepEqual(gefragt.loeschtNamen.sort(),
+      ['daten/alter-ordner/auch-weg.bin', 'daten/veraltet.txt']);
+  });
+
+  await t.test('das Veraltete ist weg, der leere Ordner auch', () => {
+    assert.equal(fs.existsSync(path.join(ziel, 'daten', 'veraltet.txt')), false);
+    assert.equal(fs.existsSync(path.join(ziel, 'daten', 'alter-ordner')), false,
+      'der leergeraeumte Ordner steht noch da');
+    assert.equal(e.value.deleted, 2);
+  });
+
+  await t.test('was zur Quelle gehoert, ist unversehrt', () => {
+    assert.ok(heil(ziel, root), 'der Inhalt stimmt nach dem Abgleich nicht');
+  });
+
+  await t.test('neben dem Zielordner wurde nichts angefasst', () => {
+    assert.ok(unbeteiligtesHeil(ziel), 'der Abgleich ist aus seinem Ordner ausgebrochen');
+  });
+});
+
+test('ohne Abgleich bleibt drueben alles liegen', async (t) => {
+  const dir = tempdir(t);
+  const root = quelle(dir);
+  const ziel = path.join(dir, 'ziel');
+
+  const sender = identity.create();
+  const empfaenger = identity.create();
+  await lauf(root, ziel, { sender, empfaenger });
+  fs.writeFileSync(path.join(ziel, 'daten', 'veraltet.txt'), 'von gestern');
+
+  const { e } = await lauf(root, ziel, {
+    sender, empfaenger,
+    approve: () => true          // gefragt, aber ohne mirror
+  });
+
+  assert.equal(e.value.ok, true);
+  assert.equal(e.value.deleted, 0);
+  assert.ok(fs.existsSync(path.join(ziel, 'daten', 'veraltet.txt')),
+    'es wurde geloescht, obwohl kein Abgleich verlangt war');
+});
+
+test('ein Nein loescht nichts - auch nicht die Haelfte', async (t) => {
+  const dir = tempdir(t);
+  const root = quelle(dir);
+  const ziel = path.join(dir, 'ziel');
+
+  const sender = identity.create();
+  const empfaenger = identity.create();
+  await lauf(root, ziel, { sender, empfaenger });
+  fs.writeFileSync(path.join(ziel, 'daten', 'veraltet.txt'), 'von gestern');
+
+  const { e } = await lauf(root, ziel, {
+    sender, empfaenger, mirror: true,
+    approve: () => false
+  });
+
+  assert.equal(e.status, 'rejected');
+  assert.equal(e.reason.code, 'DECLINED');
+  assert.ok(fs.existsSync(path.join(ziel, 'daten', 'veraltet.txt')),
+    'abgelehnt - und trotzdem geloescht');
+});
+
+test('ohne Einwilligungs-Haken wird NICHT abgeglichen, sondern nur uebertragen', async (t) => {
+  // Das ist die Regel fuer die Kommandozeile: sie fragt nicht, also darf
+  // ein Zuruf von draussen dort auch nichts wegraeumen. Uebertragen wird
+  // trotzdem - ein Abgleich, den niemand bestaetigt hat, ist keiner.
+  const dir = tempdir(t);
+  const root = quelle(dir);
+  const ziel = path.join(dir, 'ziel');
+
+  const sender = identity.create();
+  const empfaenger = identity.create();
+  await lauf(root, ziel, { sender, empfaenger });
+  fs.writeFileSync(path.join(ziel, 'daten', 'veraltet.txt'), 'von gestern');
+
+  const { e } = await lauf(root, ziel, { sender, empfaenger, mirror: true });
+
+  assert.equal(e.value.ok, true);
+  assert.equal(e.value.deleted, 0);
+  assert.ok(fs.existsSync(path.join(ziel, 'daten', 'veraltet.txt')),
+    'ohne Rueckfrage geloescht - genau das darf nicht passieren');
+});
+
+test('eine einzelne Datei spannt keinen Ordner auf und gleicht nichts ab', async (t) => {
+  // "urlaub.jpg" schicken darf nicht den Zielordner leeren.
+  const dir = tempdir(t);
+  const ziel = path.join(dir, 'ziel');
+  fs.mkdirSync(ziel, { recursive: true });
+  fs.writeFileSync(path.join(ziel, 'fremd.txt'), 'NICHT ANFASSEN');
+
+  const einzeln = path.join(dir, 'einzeln.txt');
+  fs.writeFileSync(einzeln, 'nur ich');
+
+  const leitung = memory.pair({});
+  const files = chunks.scan([einzeln]);
+  const sender = identity.create();
+  const empfaenger = identity.create();
+
+  const [s, e] = await Promise.allSettled([
+    session.send(leitung.a, { identity: sender, expect: empfaenger.pub, files, mirror: true }),
+    session.receive(leitung.b, {
+      identity: empfaenger, expect: sender.pub, dir: ziel, approve: () => true
+    })
+  ]);
+
+  assert.equal(s.status, 'fulfilled', s.reason && s.reason.message);
+  assert.equal(e.value.deleted, 0);
+  assert.ok(fs.existsSync(path.join(ziel, 'fremd.txt')), 'der Zielordner wurde geleert');
+  assert.ok(fs.existsSync(path.join(ziel, 'einzeln.txt')));
 });

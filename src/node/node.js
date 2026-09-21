@@ -440,7 +440,7 @@ async function open({
   }
 
   /** Schickt Pfade an eine Gegenstelle. `signal` haelt die Sendung an (siehe session.send). */
-  async function sendTo(ziel, paths, { onProgress = () => {}, signal = null } = {}) {
+  async function sendTo(ziel, paths, { onProgress = () => {}, signal = null, mirror = false } = {}) {
     const { identityMod, address, erwartet } = zielPruefen(ziel);
 
     const files = chunks.scan(paths);
@@ -455,6 +455,7 @@ async function open({
         expect: erwartet,
         files,
         signal,
+        mirror,
         onEvent: (e) => {
           if (e.type === 'secure') schluesselPruefen(identityMod, address, ziel, e);
           onProgress(e);

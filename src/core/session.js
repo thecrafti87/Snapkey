@@ -22,6 +22,12 @@
    nur Nachrichten (siehe talk.js).
    ================================================================= */
 
+// Fuer den Abgleich gebraucht (Wegraeumen dessen, was zu viel ist).
+// pump() holt sich fs weiterhin selbst - dort war es eine bewusste
+// Kleinigkeit, den Zugriff erst beim Senden zu oeffnen.
+const fs = require('fs');
+const path = require('path');
+
 const frame = require('./frame');
 const chunks = require('./chunks');
 const handshake = require('./handshake');
@@ -243,7 +249,7 @@ function connect(transport, { identity, expect = null, initiator, onEvent = () =
  * Die Liste kann fertig uebergeben werden - beim zweiten Anlauf muss
  * nicht noch einmal alles durchgerechnet werden.
  */
-function send(transport, { identity, expect = null, files, manifest = null, onEvent = () => {}, signal = null }) {
+function send(transport, { identity, expect = null, files, manifest = null, onEvent = () => {}, signal = null, mirror = false }) {
   let sheet = manifest;
   let sent = 0;
 
@@ -392,7 +398,10 @@ function send(transport, { identity, expect = null, files, manifest = null, onEv
           onEvent({ type: 'hashing' });
           sheet = chunks.buildManifest(files, (n) => onEvent({ type: 'hashed', bytes: n }));
         }
-        sendControl({ t: 'manifest', manifest: sheet });
+        // Der Wunsch nach Abgleich reist als Bitte mit, nicht als
+        // Befehl: ob drueben wirklich etwas weggeraeumt wird,
+        // entscheidet allein die Gegenseite (siehe receiveOn).
+        sendControl({ t: 'manifest', manifest: sheet, mirror: Boolean(mirror) });
         onEvent({ type: 'offered', files: sheet.files.length, bytes: chunks.totalBytes(sheet) });
 
         // Die Zustaendigkeit fuer neue Bytes geht ab hier auf uns ueber
@@ -428,6 +437,43 @@ function send(transport, { identity, expect = null, files, manifest = null, onEv
  * beginnt - bei Dateien ist es ein 'manifest', bei einer Nachrichten-
  * sitzung (talk.js) ein 'say' (siehe node.js, die Weiche liegt dort).
  */
+/**
+ * Nach einem Abgleich bleiben Ordner zurueck, deren Inhalt weg ist.
+ * Die gehoeren mit weg - sonst ist der Zielordner eben NICHT wie die
+ * Quelle, sondern ein Gerippe aus leeren Verzeichnissen.
+ *
+ * Angefasst wird nur unterhalb der Wurzeln, die die Uebertragung
+ * mitbringt, und nur wirklich Leeres - dieselbe Grenze wie bei
+ * chunks.ueberzaehlig().
+ */
+function leereOrdnerRaeumen(dir, sheet) {
+  const behalten = new Set();
+  for (const f of sheet.files) {
+    const teile = f.name.split('/');
+    // Jeder Ordner auf dem Weg zu einer Datei wird gebraucht.
+    for (let i = 1; i < teile.length; i++) behalten.add(teile.slice(0, i).join('/'));
+  }
+
+  const walk = (rel) => {
+    const abs = path.join(dir, ...rel.split('/'));
+    let eintraege;
+    try {
+      eintraege = fs.readdirSync(abs, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of eintraege) {
+      if (e.isDirectory() && !e.isSymbolicLink()) walk(`${rel}/${e.name}`);
+    }
+    if (behalten.has(rel)) return;
+    try {
+      if (fs.readdirSync(abs).length === 0) fs.rmdirSync(abs);
+    } catch { /* nicht leer oder nicht loeschbar - dann bleibt er */ }
+  };
+
+  for (const w of chunks.wurzeln(sheet)) walk(w);
+}
+
 function receiveOn(handshake, { dir, dedup = true, onEvent = () => {}, approve = null, signal = null }, ersteNachricht) {
   const { channel, peer } = handshake;
   const sendControl = handshake.sendControl;
@@ -438,6 +484,8 @@ function receiveOn(handshake, { dir, dedup = true, onEvent = () => {}, approve =
   let taken = 0;
   let had = 0;      // was beim Nachsehen schon heil dalag
   let recovered = 0;  // was aus dem Zielordner selbst wiederhergestellt wurde
+  let zuLoeschen = [];  // beim Abgleich: was hier zu viel liegt (erst nach Zustimmung)
+  let geloescht = 0;
 
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -490,6 +538,22 @@ function receiveOn(handshake, { dir, dedup = true, onEvent = () => {}, approve =
     const angenommen = () => {
       if (settled) return;
 
+      // Der Abgleich zuerst, vor dem Holen: was hier zu viel liegt, kann
+      // sonst als Fundgrube fuer die Blockwiedererkennung dienen und
+      // waere danach doch weg. Erst aufraeumen, dann nachsehen, was
+      // fehlt - so stimmt die Rechnung.
+      if (zuLoeschen.length) {
+        for (const rel of zuLoeschen) {
+          const ziel = path.join(dir, ...rel.split('/'));
+          try {
+            fs.rmSync(ziel, { force: true });
+            geloescht++;
+          } catch { /* schon weg, oder nicht unser Recht - dann eben nicht */ }
+        }
+        leereOrdnerRaeumen(dir, sheet);
+        onEvent({ type: 'mirrored', deleted: geloescht });
+      }
+
       // Hier entsteht das Fortsetzen: nachsehen, was schon daliegt.
       onEvent({ type: 'checking' });
       let { want, have, total } = chunks.missing(sheet, dir, (n) => onEvent({ type: 'checked', bytes: n }));
@@ -518,7 +582,7 @@ function receiveOn(handshake, { dir, dedup = true, onEvent = () => {}, approve =
         sink.close();
         sink = null;
         sendControl({ t: 'done', ok: true, missing: [] });
-        finish({ ok: true, taken: 0, had, recovered, peer, missing: [] });
+        finish({ ok: true, taken: 0, had, recovered, deleted: geloescht, peer, missing: [] });
       }
     };
 
@@ -528,6 +592,22 @@ function receiveOn(handshake, { dir, dedup = true, onEvent = () => {}, approve =
         if (!sheet || !Array.isArray(sheet.files)) return fail(new Error('Unbrauchbare Dateiliste'));
 
         onEvent({ type: 'offered', files: sheet.files.length, bytes: chunks.totalBytes(sheet) });
+
+        /* ----------------------- Abgleich ----------------------- */
+
+        // Ein Abgleich loescht Dateien auf DIESEM Rechner, auf Zuruf von
+        // draussen. Das geschieht nur, wenn hier jemand ausdruecklich Ja
+        // sagt - ohne Einwilligungs-Haken gar nicht. Die Kommandozeile
+        // (die nicht fragt) uebertraegt deshalb normal weiter, statt
+        // stillschweigend wegzuraeumen: ein Abgleich, den niemand
+        // bestaetigt hat, ist keiner.
+        if (msg.mirror && approve) {
+          try {
+            zuLoeschen = chunks.ueberzaehlig(sheet, dir);
+          } catch (err) {
+            return fail(new Error(`Der Abgleich liess sich nicht vorbereiten: ${err.message}`));
+          }
+        }
 
         // Ohne Einwilligungs-Haken laeuft alles wie bisher: sofort
         // weiter. Mit ihm wird erst gefragt - der Sender wartet in
@@ -544,7 +624,14 @@ function receiveOn(handshake, { dir, dedup = true, onEvent = () => {}, approve =
             bytes: chunks.totalBytes(sheet),
             // Die ersten Namen reichen, um zu wissen, worum es geht -
             // die ganze Liste kann bei einem Ordner riesig sein.
-            names: sheet.files.slice(0, 8).map((f) => f.name)
+            names: sheet.files.slice(0, 8).map((f) => f.name),
+            // Beim Abgleich gehoert das Wegfallende in dieselbe Frage.
+            // Wer zustimmt, stimmt dem Loeschen mit zu - deshalb muss es
+            // dort stehen und nicht in einer zweiten Ruecksprache, die
+            // man wegklickt.
+            mirror: zuLoeschen.length > 0 || Boolean(msg.mirror && approve),
+            loescht: zuLoeschen.length,
+            loeschtNamen: zuLoeschen.slice(0, 8)
           }))
           .then((ja) => {
             if (settled) return;
@@ -566,7 +653,7 @@ function receiveOn(handshake, { dir, dedup = true, onEvent = () => {}, approve =
         const names = [...new Set(rest.map((r) => sheet.files[r.fileIndex].name))];
 
         sendControl({ t: 'done', ok: rest.length === 0, missing: names });
-        finish({ ok: rest.length === 0, taken, had, recovered, peer, missing: names });
+        finish({ ok: rest.length === 0, taken, had, recovered, deleted: geloescht, peer, missing: names });
         return;
       }
 

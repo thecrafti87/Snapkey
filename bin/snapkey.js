@@ -124,7 +124,7 @@ async function zielFinden(n, ziel, { an, treffpunkt, treffpunktPass }) {
 /* ------------------------------ Argumente ------------------------------ */
 
 // Flaggen ohne Wert dahinter - der Rest schluckt das naechste Wort.
-const SCHALTER = new Set(['neue-annehmen', 'ohne-wiedererkennung', 'ohne-rundruf', 'portfreigabe']);
+const SCHALTER = new Set(['neue-annehmen', 'ohne-wiedererkennung', 'ohne-rundruf', 'portfreigabe', 'abgleichen']);
 
 function parseArgs(argv) {
   const positional = [];
@@ -134,6 +134,15 @@ function parseArgs(argv) {
     if (teil.startsWith('--')) {
       const key = teil.slice(2);
       if (SCHALTER.has(key)) { flags[key] = true; continue; }
+
+      // Folgt nichts mehr oder gleich das naechste Flag, ist dieses
+      // hier selbst ein Schalter. Ohne diese Zeile verschluckt ein
+      // Schalter, der in SCHALTER vergessen wurde, das folgende
+      // Argument - und beide sind wirkungslos, ohne dass etwas meckert.
+      // Genau so ist --abgleichen beim ersten Anlauf ins Leere gelaufen.
+      const naechster = argv[i + 1];
+      if (naechster === undefined || naechster.startsWith('--')) { flags[key] = true; continue; }
+
       flags[key] = argv[++i];
     } else {
       positional.push(teil);
@@ -358,6 +367,10 @@ async function befehlSend(positional, flags) {
     let letzterDruck = 0;
 
     const res = await n.sendTo(gegenstelle, pfade, {
+      // Der Abgleich ist eine Bitte, kein Befehl: die Gegenseite raeumt
+      // nur weg, wenn dort jemand zustimmt. Ein `snapkey listen` ohne
+      // Rueckfrage uebertraegt deshalb normal weiter und loescht nichts.
+      mirror: Boolean(flags.abgleichen),
       onProgress: (e) => {
         if (e.type === 'route') console.log(`Weg: ${WEG_TEXT[e.route] || e.route}`);
 
@@ -540,6 +553,8 @@ Dateien und Nachrichten direkt von Gerät zu Gerät
                 [--treffpunkt HOST[:PORT]] [--treffpunkt-pass WORT]
                                                    auf Übertragungen und Nachrichten warten
   snapkey send <ziel> <pfad...>                    Dateien oder Ordner schicken
+    --abgleichen                                   drueben wegraeumen, was die Quelle nicht hat
+                                                   (nur wenn die Gegenseite zustimmt)
                 [--treffpunkt HOST[:PORT]] [--treffpunkt-pass WORT]
                 [--an HOST[:PORT]]
   snapkey say <ziel> <text...>                     eine Nachricht schicken
