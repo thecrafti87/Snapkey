@@ -354,8 +354,19 @@ laufen lässt (ein NAS, ein kleiner Server, egal was dauerhaft erreichbar ist),
 zusammenschalten lassen.
 
 ```bash
-snapkey treffpunkt --port 41997 --pass geheimnis
+snapkey treffpunkt --port 41997 --pass geheimnis --portfreigabe
 ```
+
+`--portfreigabe` bittet den Router selbst um die Freigabe (NAT-PMP, PCP, UPnP)
+und **erneuert sie, bevor sie abläuft** — solche Freigaben halten nur eine
+Stunde, und eine abgelaufene fällt nicht auf, sie macht den Treffpunkt nur
+still unerreichbar. Beim Beenden gibt er sie zurück. Ob das an einem Anschluss
+geht, sagt vorher `snapkey router`; wenn nicht, bleibt die Freigabe von Hand.
+
+Das Passwort steht hier zum Mitlesen in der Prozessliste. Im Dauerbetrieb
+besser über die Umgebung: `SNAPKEY_TREFFPUNKT_PASS` (und
+`SNAPKEY_TREFFPUNKT_PORTFREIGABE=1`), so macht es auch der Bausatz unter
+`treffpunkt/`.
 
 Auf dem empfangenden Gerät meldet sich `snapkey listen` zusätzlich dort an:
 
