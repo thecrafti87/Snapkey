@@ -34,21 +34,53 @@ kann jeder, der den Dienst erreicht, jede Anschrift belegen.
 
 Der Container allein genügt nicht: Der Router muss den Port durchlassen.
 
-**IPv6** ist bei den meisten Anschlüssen der verlässlichere Weg. In der
-Fritz!Box unter *Internet → Freigaben → Portfreigaben* eine Freigabe für das
-NAS auf Port `41997` (TCP) anlegen.
+**Der Treffpunkt kann sich die Freigabe selbst holen.** In der `.env`:
 
-**IPv4** braucht eine eigene öffentliche Adresse. Viele Anschlüsse teilen sich
-heute eine (CGNAT) — dann gibt es keinen eigenen Port zum Weiterleiten.
-Prüfen lässt sich das von einem Rechner im selben Netz:
+```
+SNAPKEY_TREFFPUNKT_PORTFREIGABE=1
+```
+
+Er probiert dann NAT-PMP, PCP und UPnP, und — das ist der Teil, an den man von
+Hand nicht denkt — er **erneuert die Freigabe, bevor sie abläuft**. Solche
+Freigaben halten nur eine Stunde; eine einmal gesetzte wäre danach still wieder
+weg. Beim Beenden gibt er sie zurück, statt sie im Router liegen zu lassen.
+
+Im Protokoll steht dann:
+
+```
+Bitte den Router um eine Freigabe (bis zu einige Sekunden) ...
+Öffentlich erreichbar (pcp) unter 203.0.113.7:41997
+```
+
+Ob das an einem Anschluss überhaupt geht, sagt vorab:
 
 ```bash
 snapkey router
 ```
 
-Deshalb läuft der Container mit `network_mode: host`: Dockers übliche Brücke
-spricht nur IPv4, solange man sie nicht eigens umbaut. Im Wirtsnetz lauscht der
-Dienst auf beiden Familien gleichzeitig.
+Klappt es nicht, ist das kein Fehler — dann die Freigabe von Hand anlegen, in
+der Fritz!Box unter *Internet → Freigaben → Portfreigaben* für das NAS auf Port
+`41997` (TCP).
+
+**IPv4 braucht eine eigene öffentliche Adresse.** Viele Anschlüsse teilen sich
+heute eine (CGNAT) — dann gibt es keinen eigenen Port zum Weiterleiten, und
+auch die automatische Freigabe kann daran nichts ändern. `snapkey router` sagt
+es dir.
+
+**IPv6** ist bei solchen Anschlüssen der verlässlichere Weg. Deshalb läuft der
+Container mit `network_mode: host`: Dockers übliche Brücke spricht nur IPv4,
+solange man sie nicht eigens umbaut. Im Wirtsnetz lauscht der Dienst auf beiden
+Familien gleichzeitig.
+
+### Nachsehen, ob die Freigabe wirklich greift
+
+Hier liegt eine Falle. Ein Verbindungsversuch auf die eigene öffentliche
+Adresse **aus dem eigenen Netz heraus** gelingt oft schon deshalb, weil der
+Router den Weg intern kurzschließt (Hairpin-NAT). Über die Firewall sagt das
+nichts. Wer so prüft, hält eine zugemauerte Freigabe für offen.
+
+Es braucht einen Blick von außen — siehe *Erst allein probieren* weiter unten.
+Wichtig dabei: **ohne VPN**, sonst ist man über Umwege wieder im eigenen Netz.
 
 ## In SNAPKEY eintragen
 
