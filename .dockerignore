@@ -1,0 +1,14 @@
+# Was nicht ins Bild gehoert. Der Treffpunkt braucht nur src/ und bin/
+# (siehe treffpunkt/Dockerfile) - alles Uebrige macht den Bauvorgang nur
+# langsam und das Bild groesser.
+
+node_modules
+build
+.git
+.github
+app
+test
+werbung
+treffpunkt/.env
+*.md
+.gitignore

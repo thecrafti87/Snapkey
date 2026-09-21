@@ -4,3 +4,6 @@ build/
 
 # macOS legt das ueberall ab
 .DS_Store
+
+# Das Passwort des Treffpunkts gehoert nicht auf GitHub.
+treffpunkt/.env

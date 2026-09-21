@@ -485,7 +485,11 @@ async function befehlChat(positional) {
 async function befehlTreffpunkt(flags) {
   const port = flags.port !== undefined ? Number(flags.port) : meetServerMod.DEFAULT_PORT;
   if (Number.isNaN(port)) throw new Error('--port erwartet eine Zahl');
-  const pass = flags.pass || '';
+
+  // Das Passwort darf auch aus der Umgebung kommen. In einem Container
+  // ist das der uebliche Weg - und der bessere: was als Argument
+  // uebergeben wird, steht fuer jeden in der Prozessliste (`ps`).
+  const pass = flags.pass || process.env.SNAPKEY_TREFFPUNKT_PASS || '';
 
   const server = await meetServerMod.start({
     port,
@@ -502,15 +506,37 @@ async function befehlTreffpunkt(flags) {
     }
   });
 
-  console.log(`Treffpunkt hört auf Port ${server.port}${pass ? ' (mit Passwort)' : ' (offen, ohne Passwort)'}`);
+  console.log(`Treffpunkt hört auf Port ${server.port}${pass ? ' (mit Passwort)' : ''}`);
+  if (!pass) {
+    // Deutlich, nicht beilaeufig: ohne Passwort kann sich jeder, der
+    // den Treffpunkt erreicht, unter JEDER Anschrift anmelden und die
+    // echte Gegenstelle damit verdraengen. Mitlesen kann er nicht -
+    // stoeren sehr wohl. Im eigenen Netz mag das hinnehmbar sein, aus
+    // dem Internet erreichbar ist es das nicht.
+    console.log('');
+    console.log('  ACHTUNG: ohne Passwort. Wer hier hinkommt, kann jede Anschrift belegen.');
+    console.log('  Mit --pass oder SNAPKEY_TREFFPUNKT_PASS setzen, bevor das aus dem Netz erreichbar ist.');
+    console.log('');
+  }
   console.log('Bereit. Strg+C beendet.');
 
   await new Promise((resolve) => {
-    process.once('SIGINT', async () => {
-      console.log('\nBeende...');
+    let geht = false;
+    const beenden = async (signal) => {
+      if (geht) return;
+      geht = true;
+      console.log(`\nBeende (${signal}) ...`);
       try { await server.close(); } catch { /* egal, es wird sowieso beendet */ }
       resolve();
-    });
+    };
+
+    // SIGTERM gehoert dazu, nicht nur Strg+C: "docker stop" und jeder
+    // Dienstverwalter schicken SIGTERM. Ohne diese Zeile laeuft der
+    // Treffpunkt in die Frist und wird hart abgeschossen - laufende
+    // Vermittlungen reissen dann mitten im Satz ab, statt sich
+    // abzumelden.
+    process.once('SIGINT', () => beenden('SIGINT'));
+    process.once('SIGTERM', () => beenden('SIGTERM'));
   });
   process.exit(0);
 }

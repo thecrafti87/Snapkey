@@ -1,0 +1,75 @@
+# =====================================================================
+# Der SNAPKEY-Treffpunkt auf dem NAS.
+#
+#   docker compose up -d        starten
+#   docker compose logs -f      zusehen
+#   docker compose down         beenden
+#
+# Vorher .env anlegen (siehe .env.beispiel) - ohne Passwort kann jeder,
+# der hier hinkommt, jede Anschrift belegen.
+# =====================================================================
+
+services:
+  treffpunkt:
+    build:
+      # Gebaut wird aus dem Projektstamm, nicht aus diesem Ordner: das
+      # Bild braucht src/ und bin/, die eine Ebene hoeher liegen.
+      context: ..
+      dockerfile: treffpunkt/Dockerfile
+    image: snapkey-treffpunkt:latest
+    container_name: snapkey-treffpunkt
+
+    # Das Netz des Wirts, nicht ein eigenes. Grund ist IPv6: Dockers
+    # uebliche Bruecke spricht nur IPv4, solange man sie nicht eigens
+    # umbaut - und bei einem Anschluss mit geteilter IPv4-Adresse ist
+    # IPv6 oft der einzige Weg von aussen herein. Im Wirtsnetz lauscht
+    # der Dienst auf beiden Familien gleichzeitig.
+    #
+    # Der Preis: keine Netztrennung zum Wirt, und "ports:" hat hier
+    # keine Wirkung - der Port aus .env gilt unmittelbar.
+    network_mode: host
+
+    environment:
+      # Kommt aus .env, steht so NICHT in der Prozessliste.
+      SNAPKEY_TREFFPUNKT_PASS: ${SNAPKEY_TREFFPUNKT_PASS:?bitte in .env setzen}
+      # Auch im Container bekannt, damit der Healthcheck unten denselben
+      # Port prueft, auf dem wirklich gelauscht wird.
+      SNAPKEY_TREFFPUNKT_PORT: ${SNAPKEY_TREFFPUNKT_PORT:-41997}
+    command: ["--port", "${SNAPKEY_TREFFPUNKT_PORT:-41997}"]
+
+    restart: unless-stopped
+
+    # Der Treffpunkt schreibt nichts - er haelt Verbindungen im
+    # Arbeitsspeicher und vergisst sie beim Auflegen. Also braucht er
+    # auch kein beschreibbares Dateisystem und keine Sonderrechte.
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+
+    # Ohne Begrenzung laeuft auf einem NAS irgendwann die Platte voll -
+    # der Treffpunkt schreibt bei jeder Anmeldung eine Zeile.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Lauscht er noch? Geprueft wird mit Bordmitteln, ohne zusaetzliches
+    # Werkzeug im Bild. Die Verbindung wird sofort wieder geschlossen -
+    # der Treffpunkt nimmt davon keine Notiz, weil erst eine Nachricht
+    # ihn etwas eintragen laesst.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - |
+          const net = require('net');
+          const s = net.connect(Number(process.env.SNAPKEY_TREFFPUNKT_PORT || 41997), '127.0.0.1');
+          s.on('connect', () => { s.destroy(); process.exit(0); });
+          s.on('error', () => process.exit(1));
+          setTimeout(() => process.exit(1), 4000);
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
