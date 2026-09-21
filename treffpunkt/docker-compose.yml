@@ -35,6 +35,11 @@ services:
       # Auch im Container bekannt, damit der Healthcheck unten denselben
       # Port prueft, auf dem wirklich gelauscht wird.
       SNAPKEY_TREFFPUNKT_PORT: ${SNAPKEY_TREFFPUNKT_PORT:-41997}
+      # Bittet den Router selbst um eine Freigabe (NAT-PMP, PCP, UPnP),
+      # damit der Treffpunkt auch von aussen erreichbar ist - und
+      # erneuert sie, bevor sie ablaeuft. Klappt nicht ueberall; dann
+      # bleibt die Freigabe von Hand im Router.
+      SNAPKEY_TREFFPUNKT_PORTFREIGABE: ${SNAPKEY_TREFFPUNKT_PORTFREIGABE:-0}
     command: ["--port", "${SNAPKEY_TREFFPUNKT_PORT:-41997}"]
 
     restart: unless-stopped

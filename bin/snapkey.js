@@ -125,6 +125,9 @@ async function zielFinden(n, ziel, { an, treffpunkt, treffpunktPass }) {
 
 // Flaggen ohne Wert dahinter - der Rest schluckt das naechste Wort.
 const SCHALTER = new Set(['neue-annehmen', 'ohne-wiedererkennung', 'ohne-rundruf', 'portfreigabe', 'abgleichen']);
+// Auch aus der Umgebung setzbar - im Container gibt es keine
+// Befehlszeile, an die man mal eben etwas anhaengt.
+const SCHALTER_AUS_UMGEBUNG = { portfreigabe: 'SNAPKEY_TREFFPUNKT_PORTFREIGABE' };
 
 function parseArgs(argv) {
   const positional = [];
@@ -507,6 +510,39 @@ async function befehlTreffpunkt(flags) {
   });
 
   console.log(`Treffpunkt hört auf Port ${server.port}${pass ? ' (mit Passwort)' : ''}`);
+
+  /* ---------------------- Von aussen erreichbar ---------------------- */
+
+  // Ein Treffpunkt, den nur das eigene Netz erreicht, ist keiner: seine
+  // ganze Aufgabe ist, Geraete zusammenzubringen, die sich sonst nicht
+  // finden. Deshalb kann er den Router selbst um eine Freigabe bitten -
+  // dieselbe Mechanik wie bei `listen --portfreigabe` (NAT-PMP, PCP,
+  // UPnP), samt Erneuerung, bevor sie ablaeuft.
+  //
+  // Klappt es nicht, ist das kein Fehler: viele Router haben das
+  // abgeschaltet, und bei einem Anschluss mit geteilter Adresse gibt es
+  // gar keinen eigenen Port. Dann bleibt die Freigabe von Hand.
+  let freigabe = null;
+  const willFreigabe = flags.portfreigabe
+    || ['1', 'true', 'ja'].includes(String(process.env[SCHALTER_AUS_UMGEBUNG.portfreigabe] || '').toLowerCase());
+
+  if (willFreigabe) {
+    console.log('Bitte den Router um eine Freigabe (bis zu einige Sekunden) ...');
+    freigabe = await portmap.open({
+      port: server.port,
+      onEvent: (e) => {
+        if (e.type === 'renewed') console.log(`Freigabe erneuert (${e.method}): ${e.external.host}:${e.external.port}`);
+        else if (e.type === 'lost') console.error(`Freigabe verloren (${e.method}) - von aussen jetzt nicht mehr erreichbar`);
+      }
+    });
+
+    if (freigabe) {
+      console.log(`Öffentlich erreichbar (${freigabe.method}) unter ${freigabe.external.host}:${freigabe.external.port}`);
+    } else {
+      console.log('Keine Freigabe bekommen - nur im eigenen Netz erreichbar.');
+      console.log('  (Router hat es abgeschaltet, oder der Anschluss teilt sich eine Adresse.)');
+    }
+  }
   if (!pass) {
     // Deutlich, nicht beilaeufig: ohne Passwort kann sich jeder, der
     // den Treffpunkt erreicht, unter JEDER Anschrift anmelden und die
@@ -526,6 +562,10 @@ async function befehlTreffpunkt(flags) {
       if (geht) return;
       geht = true;
       console.log(`\nBeende (${signal}) ...`);
+      // Die Freigabe zurueckgeben, statt sie beim Router stehen zu
+      // lassen - sonst sammeln sich dort Eintraege auf einen Port, den
+      // niemand mehr bedient.
+      if (freigabe) { try { await freigabe.close(); } catch { /* dann laeuft sie eben ab */ } }
       try { await server.close(); } catch { /* egal, es wird sowieso beendet */ }
       resolve();
     };
@@ -578,6 +618,11 @@ Dateien und Nachrichten direkt von Gerät zu Gerät
                 [--ohne-wiedererkennung] [--ohne-rundruf] [--portfreigabe]
                 [--treffpunkt HOST[:PORT]] [--treffpunkt-pass WORT]
                                                    auf Übertragungen und Nachrichten warten
+  snapkey treffpunkt                               den Vermittlungsdienst betreiben
+    --port <nr>                                    Standard 41997
+    --pass <wort>                                  oder SNAPKEY_TREFFPUNKT_PASS
+    --portfreigabe                                 den Router um Erreichbarkeit von aussen bitten
+
   snapkey send <ziel> <pfad...>                    Dateien oder Ordner schicken
     --abgleichen                                   drueben wegraeumen, was die Quelle nicht hat
                                                    (nur wenn die Gegenseite zustimmt)
