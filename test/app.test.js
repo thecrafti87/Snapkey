@@ -182,3 +182,44 @@ test('preload.js baut keine Bruecke zu Node - nur zu ipcRenderer', () => {
   assert.ok(preload.includes('contextBridge.exposeInMainWorld'));
   assert.ok(!/require\('fs'\)|require\("fs"\)/.test(preload), 'preload.js sollte kein fs direkt anfassen');
 });
+
+/* --------------------- Der Weg zur Gegenstelle --------------------- */
+
+/*
+   Der Rundruf deckt nur das eigene Netz ab. Ein Geraet im Mobilfunknetz
+   taucht dort nie auf - und genau daran ist das Senden frueher
+   gescheitert: die Oberflaeche brach ab, obwohl der Kern den Weg ueber
+   den Treffpunkt laengst kannte.
+
+   `wegZu` steckt in app.js, das als Seitenskript nichts von sich aus
+   ausfuehrt. Die Funktion laesst sich deshalb herausloesen und fuer sich
+   pruefen - ohne Electron, ohne DOM.
+*/
+function ladeWegZu(settings) {
+  const quelle = /function wegZu\(peer\) \{[\s\S]*?\n\}/.exec(js);
+  assert.ok(quelle, 'wegZu nicht in app.js gefunden - umbenannt?');
+  return new Function('state', `${quelle[0]}\nreturn wegZu;`)({ settings });
+}
+
+test('im eigenen Netz gefunden heisst unmittelbarer Weg', () => {
+  const wegZu = ladeWegZu({});
+  assert.equal(wegZu({ address: 'a-b-c-d-e-f', host: '192.168.178.54', port: 41996 }), 'lan');
+});
+
+test('nicht gefunden, aber ein Treffpunkt steht: dann geht es ueber ihn', () => {
+  const wegZu = ladeWegZu({ meetHost: 'irgendwo.myfritz.net' });
+  assert.equal(wegZu({ address: 'a-b-c-d-e-f' }), 'treffpunkt');
+});
+
+test('ohne Treffpunkt und ohne Fund bleibt es beim Nein', () => {
+  const wegZu = ladeWegZu({});
+  assert.equal(wegZu({ address: 'a-b-c-d-e-f' }), 'keiner');
+  assert.equal(wegZu(null), 'keiner');
+});
+
+test('die Sendeauswahl sperrt nicht mehr blind auf fehlendem host', () => {
+  // Regressionsschutz: genau diese Zeile stand hier und machte jedes
+  // Geraet ausserhalb des eigenen Netzes unerreichbar.
+  assert.ok(!/if \(!peer \|\| !peer\.host\)/.test(js),
+    'die harte Sperre auf peer.host ist zurueck - damit faellt der Treffpunkt wieder aus');
+});

@@ -181,6 +181,24 @@ function renderDirekt() {
 
 /* ------------------------------- Geraete ------------------------------- */
 
+/**
+ * Auf welchem Weg die Gegenstelle zu erreichen waere.
+ *
+ * Der Rundruf deckt nur das eigene Netz ab. Wer dort fehlt, ist deshalb
+ * nicht unerreichbar - ist ein Treffpunkt eingerichtet, genuegt die
+ * blosse Anschrift, und der Kern sucht sich den Weg (findZiel in
+ * main.js: erst das eigene Netz, dann der Treffpunkt).
+ *
+ * 'lan'        im eigenen Netz gefunden, Adresse und Port stehen fest
+ * 'treffpunkt' nicht gefunden, aber ein Treffpunkt ist eingerichtet
+ * 'keiner'     nicht gefunden und kein Treffpunkt - hier endet es
+ */
+function wegZu(peer) {
+  if (!peer) return 'keiner';
+  if (peer.host) return 'lan';
+  return state.settings.meetHost ? 'treffpunkt' : 'keiner';
+}
+
 function renderDeviceSelect() {
   const sel = $('#sendDeviceSelect');
   const vorher = sel.value;
@@ -195,7 +213,9 @@ function renderDeviceSelect() {
     .sort((a, b) => (a.name || a.address).localeCompare(b.name || b.address))
     .forEach((p) => {
       const label = p.name || p.address;
-      const opt = el('option', null, p.host ? label : `${label} (${T('dev.offline')})`);
+      const weg = wegZu(p);
+      const zusatz = weg === 'lan' ? '' : ` (${T(weg === 'treffpunkt' ? 'dev.viaMeetShort' : 'dev.offline')})`;
+      const opt = el('option', null, `${label}${zusatz}`);
       opt.value = p.address;
       sel.append(opt);
     });
@@ -254,7 +274,11 @@ function renderDevices() {
     code.dataset.copy = `snapkey:${p.address}`;
     card.append(code);
 
-    card.append(el('p', 'card__note', p.host ? T('dev.online', `${p.host}:${p.port}`) : T('dev.offline')));
+    const weg = wegZu(p);
+    card.append(el('p', 'card__note',
+      weg === 'lan' ? T('dev.online', `${p.host}:${p.port}`)
+        : weg === 'treffpunkt' ? T('dev.viaMeet', state.settings.meetHost)
+          : T('dev.offline')));
     card.append(el('p', 'card__note', p.gekoppelt ? T('dev.paired') : T('dev.notPaired')));
 
     box.append(card);
@@ -1383,8 +1407,16 @@ async function onSendStart() {
   let title;
   if (deviceAddress) {
     const peer = state.peers.find((p) => p.address === deviceAddress);
-    if (!peer || !peer.host) { toast(T('send.offline'), 'bad'); return; }
-    ziel = { address: peer.address, host: peer.host, port: peer.port, name: peer.name };
+    const weg = wegZu(peer);
+    if (weg === 'keiner') { toast(T('send.offline'), 'bad'); return; }
+
+    // Im eigenen Netz gefunden: Adresse und Port sind frisch, die
+    // nehmen wir unmittelbar. Sonst reicht die blosse Anschrift weiter -
+    // der Kern nimmt dann den Treffpunkt. Frueher brach es hier ab,
+    // obwohl der Weg laengst offenstand.
+    ziel = weg === 'lan'
+      ? { address: peer.address, host: peer.host, port: peer.port, name: peer.name }
+      : peer.address;
     title = peer.name || peer.address;
   } else if (manuell) {
     ziel = manuell;
